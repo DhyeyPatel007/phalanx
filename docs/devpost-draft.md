@@ -37,7 +37,7 @@ What PHALANX does NOT do: no carrier scraping, no buyer tracking or fingerprinti
 - [x] Public GitHub repo, MIT licence
 - [x] README: what it does / does NOT do, setup, seeded vs live, 3 scenarios, tools used honestly, known limits
 - [x] `.env.example`, no secrets committed (secret scan clean before every push)
-- [ ] Deployed demo URL + seeded demo works without Sandbox credentials (deploy in progress)
+- [ ] Deployed demo URL + seeded demo works without Sandbox credentials (BLOCKED Oct 30: Vercel team access grant needed — see README "Live demo")
 - [ ] Demo video < 3 minutes (script in brief §12 — record after §10 passes)
 - [ ] Devpost submit (this draft)
 - [x] No unsourced statistics, no "Rule 4.2", no win-probability language (repo grep clean except the Phase 0 report's own debunks and "never a win probability" labels)

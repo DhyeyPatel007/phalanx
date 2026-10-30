@@ -10,7 +10,7 @@ When PayPal sends a `CUSTOMER.DISPUTE.CREATED` webhook, PHALANX pulls the disput
 
 ## Live demo
 
-**Seeded demo:** _deployment pending — URL added here once the Vercel deploy lands (step 5)._ The seeded demo works without any Sandbox credentials: load the 3 scenarios, run the swarm, approve, and see the execute gate refuse live calls (by design, until Sandbox is connected).
+**Seeded demo: deployment BLOCKED (Oct 30) — no demo URL exists yet, none is claimed here.** The Vercel connection used here has no grant for Dhyey's Vercel team (`dhyey-patels-projects-80ed463b`): both `create_git_project` and `create_project` return 403, and there is no logged-in Vercel CLI on this machine (`vercel login` is interactive). To unblock — one Dhyey action: grant the Vercel connection access to the team (Vercel dashboard team access/consent), or from a logged-in machine run `vercel login` then `vercel --scope dhyey-patels-projects-80ed463b project add phalanx`. After that, linking repo `DhyeyPatel007/phalanx` will auto-deploy on every push. The app is deploy-ready: `npm run build` passes, and the seeded demo needs no environment variables.
 
 ## What it does
 - Webhook ingest + signature verification + idempotent dispute creation
