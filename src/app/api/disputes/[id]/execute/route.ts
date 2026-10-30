@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApproval, getDispute, getExecution, latestRun, setExecution } from "@/lib/store";
+import { stageGate } from "@/lib/arbiter";
 
 /**
  * POST /api/disputes/{id}/execute — executes the approved action once.
@@ -34,6 +35,38 @@ export async function POST(
           "Execute refused: no human approval exists for this dispute. Approve first.",
       },
       { status: 403 },
+    );
+  }
+
+  // Stage gate (Phase 0 row 4): the dispute must be waiting for the seller.
+  const gate = stageGate(dispute);
+  if (!gate.ok) {
+    console.warn(
+      `[PHALANX] EXECUTE REFUSED ${id}: STAGE_BLOCKED — ${gate.blocker}`,
+    );
+    return NextResponse.json(
+      {
+        error: "STAGE_BLOCKED",
+        detail: gate.blocker,
+        allowed_actions: dispute.allowed_actions,
+      },
+      { status: 409 },
+    );
+  }
+
+  // Disallowed-action check: the approved action must still be allowed on
+  // the live dispute. Refuses WITH the allowed list shown.
+  if (!dispute.allowed_actions.includes(approval.action)) {
+    console.warn(
+      `[PHALANX] EXECUTE REFUSED ${id}: DISALLOWED_ACTION — approved ${approval.action} is not in allowed actions [${dispute.allowed_actions.join(", ")}].`,
+    );
+    return NextResponse.json(
+      {
+        error: "DISALLOWED_ACTION",
+        detail: `Execute refused: approved action (${approval.action}) is not allowed on this dispute.`,
+        allowed_actions: dispute.allowed_actions,
+      },
+      { status: 409 },
     );
   }
 

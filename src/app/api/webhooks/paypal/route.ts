@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ingestVerifiedEvent } from "@/lib/ingest";
-import { logWebhook } from "@/lib/store";
+import { getWebhookLog, logWebhook } from "@/lib/store";
 import {
   paypalConfigured,
   verifyWebhookSignature,
@@ -64,4 +64,11 @@ export async function POST(req: Request) {
 
   const result = await ingestVerifiedEvent(event);
   return NextResponse.json(result, { status: 200 });
+}
+
+/** GET /api/webhooks/paypal — recent webhook log (most recent first).
+ *  Read-only diagnostics: every ignored / duplicate / unverified event
+ *  is recorded here with its result — nothing is executed from a webhook. */
+export async function GET() {
+  return NextResponse.json({ log: getWebhookLog() });
 }

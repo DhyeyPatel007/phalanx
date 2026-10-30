@@ -8,9 +8,12 @@ import { getDispute } from "@/lib/store";
  * a live webhook. This is a local demo path: it does NOT verify a signature
  * (there is no PayPal signature on a stored payload) and it NEVER executes
  * anything against PayPal. Body: { "dispute_id": "PP-D-88412" }.
+ * An optional "event_id" may be supplied (used by the negative-test suite
+ * to prove duplicate events dedupe: the second replay of the same id is
+ * ignored with no second run).
  */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { dispute_id?: string };
+  const body = (await req.json().catch(() => ({}))) as { dispute_id?: string; event_id?: string };
   const disputeId = body.dispute_id ?? "PP-D-88412";
   const dispute = getDispute(disputeId);
   if (!dispute) {
@@ -18,7 +21,7 @@ export async function POST(req: Request) {
   }
 
   const payload = {
-    id: `WH-REPLAY-${disputeId}-${Date.now()}`,
+    id: body.event_id ?? `WH-REPLAY-${disputeId}-${Date.now()}`,
     event_version: "1.0",
     create_time: new Date().toISOString(),
     event_type: "CUSTOMER.DISPUTE.CREATED",
