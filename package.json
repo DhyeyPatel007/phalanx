@@ -1,0 +1,11 @@
+{
+  "name": "phalanx",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adversarial dispute-defense swarm for PayPal chargebacks (PayPal AI Hackathon)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  }
+}

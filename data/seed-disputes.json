@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "note": "Seeded demo data only. Every field is SIMULATED — no real buyer, no real transaction.",
+  "disputes": [
+    {
+      "id": "PP-D-88412",
+      "source": "seeded",
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      "amount": { "currency": "USD", "value": "480.00" },
+      "status": "WAITING_FOR_SELLER_RESPONSE",
+      "dispute_life_cycle_stage": "INQUIRY",
+      "expected_verdict": "CONTEST_HARD_PROOF",
+      "evidence": [
+        { "kind": "tracking", "summary": "FEDEX 774829104829, DELIVERED to PayPal transaction address", "simulated": true },
+        { "kind": "merchant_log", "summary": "Buyer account used product post-delivery (order/buyer ID match, dated log)", "simulated": true },
+        { "kind": "invoice", "summary": "Invoice + order record + terms timestamp consistent", "simulated": true }
+      ]
+    },
+    {
+      "id": "PP-D-88413",
+      "source": "seeded",
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+      "amount": { "currency": "USD", "value": "210.00" },
+      "status": "WAITING_FOR_SELLER_RESPONSE",
+      "dispute_life_cycle_stage": "INQUIRY",
+      "expected_verdict": "DE_ESCALATE_OFFER",
+      "evidence": [
+        { "kind": "invoice", "summary": "Invoice + order record present; product photos subjective", "simulated": true }
+      ]
+    },
+    {
+      "id": "PP-D-88414",
+      "source": "seeded",
+      "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      "amount": { "currency": "USD", "value": "95.00" },
+      "status": "WAITING_FOR_SELLER_RESPONSE",
+      "dispute_life_cycle_stage": "INQUIRY",
+      "expected_verdict": "CONCEDE_FAST_SETTLE",
+      "evidence": [
+        { "kind": "tracking", "summary": "Carrier shows no delivery; merchant at fault", "simulated": true }
+      ]
+    }
+  ]
+}
