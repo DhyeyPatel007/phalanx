@@ -165,7 +165,7 @@ export function runSwarm(dispute: Dispute): SwarmRun {
     score: finalScore,
     gaps: finalGaps,
     verdict: finalVerdict,
-    ev_display: evDisplay(finalScore, amount),
+    ev_display: evDisplay(finalScore, amount, undefined, dispute.dispute_life_cycle_stage),
     status: "AWAITING_APPROVAL",
     duration_ms: Date.now() - started,
     created_at: new Date().toISOString(),

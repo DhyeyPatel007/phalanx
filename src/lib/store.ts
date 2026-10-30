@@ -20,18 +20,60 @@ interface SeedDispute {
   status: string;
   dispute_life_cycle_stage: string;
   expected_verdict: string;
+  /** Per-dispute SIMULATED allowed actions. Must stay consistent with
+   *  allowed_response_options below: A and C carry accept_claim only, so
+   *  they must NOT list make-offer (finding #6). Omit to fall back to
+   *  SEEDED_ALLOWED_ACTIONS. */
+  allowed_actions?: string[];
   allowed_response_options?: Dispute["allowed_response_options"];
   evidence: { kind: string; summary: string; simulated: boolean }[];
 }
 
-const disputes = new Map<string, Dispute>();
-const artifacts = new Map<string, EvidenceArtifact[]>();
-const runs = new Map<string, SwarmRun[]>(); // by dispute id
-const approvals = new Map<string, Approval>(); // by dispute id (latest)
-const executions = new Map<string, ExecutionRecord>(); // by dispute id
-const processedWebhookEvents = new Set<string>();
-const webhookLog: { at: string; event_id: string; result: string; detail: string }[] = [];
-let seeded = false;
+interface PhalanxStoreState {
+  disputes: Map<string, Dispute>;
+  artifacts: Map<string, EvidenceArtifact[]>;
+  runs: Map<string, SwarmRun[]>; // by dispute id
+  approvals: Map<string, Approval>; // by dispute id (latest)
+  executions: Map<string, ExecutionRecord>; // by dispute id
+  processedWebhookEvents: Set<string>;
+  webhookLog: { at: string; event_id: string; result: string; detail: string }[];
+  seeded: boolean;
+}
+
+/**
+ * Pin ALL store state onto globalThis (finding #8). Next.js App Router can
+ * instantiate a module more than once across route bundles / dev HMR, and
+ * module-scoped Maps would then silently reset — a swarm run saved by
+ * /run could look missing to /approve. The global object survives that.
+ */
+const globalForPhalanx = globalThis as unknown as {
+  __phalanxStore?: PhalanxStoreState;
+};
+
+function getStore(): PhalanxStoreState {
+  if (!globalForPhalanx.__phalanxStore) {
+    globalForPhalanx.__phalanxStore = {
+      disputes: new Map(),
+      artifacts: new Map(),
+      runs: new Map(),
+      approvals: new Map(),
+      executions: new Map(),
+      processedWebhookEvents: new Set(),
+      webhookLog: [],
+      seeded: false,
+    };
+  }
+  return globalForPhalanx.__phalanxStore;
+}
+
+const store = getStore();
+const disputes = store.disputes;
+const artifacts = store.artifacts;
+const runs = store.runs;
+const approvals = store.approvals;
+const executions = store.executions;
+const processedWebhookEvents = store.processedWebhookEvents;
+const webhookLog = store.webhookLog;
 
 /** Simulated allowed actions for seeded disputes (INQUIRY, WAITING_FOR_SELLER_RESPONSE).
  *  Live disputes get theirs from the real PayPal detail response. */
@@ -43,7 +85,7 @@ export const SEEDED_ALLOWED_ACTIONS = [
 ];
 
 export function loadSeed(): Dispute[] {
-  if (seeded) return [...disputes.values()];
+  if (store.seeded) return [...disputes.values()];
   const file = path.join(process.cwd(), "data", "seed-disputes.json");
   const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as {
     disputes: SeedDispute[];
@@ -57,7 +99,7 @@ export function loadSeed(): Dispute[] {
       status: s.status,
       dispute_life_cycle_stage: s.dispute_life_cycle_stage,
       dispute_state: "REQUIRED_ACTION",
-      allowed_actions: [...SEEDED_ALLOWED_ACTIONS],
+      allowed_actions: s.allowed_actions ? [...s.allowed_actions] : [...SEEDED_ALLOWED_ACTIONS],
       allowed_response_options: s.allowed_response_options,
       raw_paypal_detail: null,
       created_at: new Date().toISOString(),
@@ -75,7 +117,7 @@ export function loadSeed(): Dispute[] {
       })),
     );
   }
-  seeded = true;
+  store.seeded = true;
   return [...disputes.values()];
 }
 
@@ -93,6 +135,23 @@ export function upsertDispute(d: Dispute): void {
   disputes.set(d.id, d);
 }
 
+/**
+ * Demo/test harness only: replace a SEEDED dispute's
+ * allowed_response_options (used by the negative-test suite to prove the
+ * execute route re-checks offer/accept types at execution time). Refuses
+ * live (sandbox) disputes — their options come from PayPal only.
+ */
+export function setAllowedResponseOptions(
+  id: string,
+  options: Dispute["allowed_response_options"],
+): Dispute | undefined {
+  const d = disputes.get(id);
+  if (!d || d.source !== "seeded") return undefined;
+  d.allowed_response_options = options;
+  disputes.set(id, d);
+  return d;
+}
+
 export function getArtifacts(disputeId: string): EvidenceArtifact[] {
   loadSeed();
   return artifacts.get(disputeId) ?? [];
@@ -104,6 +163,11 @@ export function addArtifacts(list: EvidenceArtifact[]): void {
     if (!cur.some((x) => x.id === a.id)) cur.push(a);
     artifacts.set(a.dispute_id, cur);
   }
+}
+
+/** Demo/test harness only: replace a dispute's whole artifact list. */
+export function setArtifacts(disputeId: string, list: EvidenceArtifact[]): void {
+  artifacts.set(disputeId, [...list]);
 }
 
 export function addRun(run: SwarmRun): void {
@@ -173,5 +237,5 @@ export function getWebhookLog() {
 }
 
 export function isSeeded(): boolean {
-  return seeded;
+  return store.seeded;
 }

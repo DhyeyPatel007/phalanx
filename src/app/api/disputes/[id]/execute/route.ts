@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getApproval, getDispute, getExecution, latestRun, setExecution } from "@/lib/store";
-import { stageGate } from "@/lib/arbiter";
+import { checkOfferAcceptTypes, stageGate } from "@/lib/arbiter";
 
 /**
  * POST /api/disputes/{id}/execute — executes the approved action once.
@@ -65,6 +65,25 @@ export async function POST(
         error: "DISALLOWED_ACTION",
         detail: `Execute refused: approved action (${approval.action}) is not allowed on this dispute.`,
         allowed_actions: dispute.allowed_actions,
+      },
+      { status: 409 },
+    );
+  }
+
+  // Offer/accept TYPE re-check: approve verified the type, but the live
+  // dispute's allowed_response_options may have changed since (finding #7).
+  // Re-check at execution time; a type the live response now excludes
+  // refuses, same as a disallowed action.
+  const typeError = checkOfferAcceptTypes(dispute, approval.action);
+  if (typeError) {
+    console.warn(
+      `[PHALANX] EXECUTE REFUSED ${id}: DISALLOWED_ACTION_TYPE — ${typeError}`,
+    );
+    return NextResponse.json(
+      {
+        error: "DISALLOWED_ACTION",
+        detail: `Execute refused: ${typeError}`,
+        allowed_response_options: dispute.allowed_response_options,
       },
       { status: 409 },
     );

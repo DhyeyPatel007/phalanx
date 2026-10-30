@@ -76,6 +76,9 @@ export default function Home() {
       const body = await res.json();
       setDisputes(body.disputes ?? []);
       setTelemetry(body.telemetry ?? null);
+      // Hydrate runs from the server (finding #7): without this, a
+      // browser reload resets every grid row to NOT RUN until clicked.
+      if (body.latest_runs) setRuns(body.latest_runs as Record<string, SwarmRun>);
       if (body.liveError) setNotice(`Live PayPal list failed (seeded demo still works): ${body.liveError}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -99,8 +102,9 @@ export default function Home() {
   const seedDemo = async () => {
     const res = await fetch("/api/demo/seed", { method: "POST" });
     const body = await res.json();
-    setDisputes(body.disputes ?? []);
     setNotice(`Seeded demo loaded: ${body.seeded} scenarios (SIMULATED).`);
+    // Refresh ledger + telemetry from the server (finding #7).
+    await refresh();
   };
 
   const runSwarm = async (id: string) => {
@@ -112,6 +116,10 @@ export default function Home() {
       if (!res.ok) throw new Error(body.error ?? "swarm run failed");
       setRuns((r) => ({ ...r, [id]: body.run }));
       await loadDetail(id);
+      // Refresh ledger + telemetry from the server (finding #7): without
+      // this, runs_completed / capital / fees stay stale until a manual
+      // refresh.
+      await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -219,6 +227,15 @@ export default function Home() {
         : run?.verdict === "CONCEDE_FAST_SETTLE"
           ? "accept-claim"
           : null;
+  // UI gates (finding #7): the buttons must respect allowed_actions, as
+  // the footnote below claims — the server already gates, this keeps the
+  // UI honest instead of offering an action that will refuse.
+  const actionAllowed = Boolean(
+    actionForVerdict && detail?.dispute.allowed_actions.includes(actionForVerdict),
+  );
+  const approvalActionAllowed = Boolean(
+    detail?.approval && detail.dispute.allowed_actions.includes(detail.approval.action),
+  );
 
   return (
     <div>
@@ -504,18 +521,28 @@ export default function Home() {
                 <div className="actions">
                   <button
                     onClick={() => actionForVerdict && approve(detail.dispute.id, actionForVerdict)}
-                    disabled={!actionForVerdict || loading}
+                    disabled={!actionForVerdict || !actionAllowed || loading}
+                    title={!actionForVerdict ? undefined : actionAllowed ? undefined : `${actionForVerdict} is not in this dispute's live allowed actions`}
                   >
                     Approve {actionForVerdict ?? "—"}
                   </button>
                   <button
                     className="danger"
                     onClick={() => execute(detail.dispute.id)}
-                    disabled={!detail.approval || loading}
+                    disabled={!detail.approval || !approvalActionAllowed || loading}
+                    title={detail.approval && !approvalActionAllowed ? `${detail.approval.action} is no longer in this dispute's live allowed actions` : undefined}
                   >
                     Execute (gated)
                   </button>
                 </div>
+                {actionForVerdict && !actionAllowed && (
+                  <p className="gaplist">
+                    Verdict action {actionForVerdict} is not allowed on this
+                    dispute (live allowed:{" "}
+                    {detail.dispute.allowed_actions.join(", ") || "none"}).
+                    Approve is disabled — the server would refuse it.
+                  </p>
+                )}
                 <p className="footnote">
                   Execute is disabled until Approve, and until the action is
                   live-allowed. In this run live execution is not enabled —

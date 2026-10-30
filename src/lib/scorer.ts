@@ -40,14 +40,20 @@ export function scoreDispute(
   const merchantLog = hasKind(artifacts, "merchant_log");
   const invoice = hasKind(artifacts, "invoice");
 
-  const delivered = summaryHas(tracking, /DELIVERED/i);
+  // Literal matching with negation guards: "NOT DELIVERED" / "UNDELIVERED"
+  // must score 0, not 30+15 — a bare /DELIVERED/i matched those too.
+  const delivered =
+    summaryHas(tracking, /\bDELIVERED\b/i) &&
+    !summaryHas(tracking, /\b(NOT|NEVER|UN)[\s-]*DELIVERED\b/i);
   const deliveryVerifiable =
     delivered && summaryHas(tracking, /[A-Z]{3,}\s+\d{6,}|FEDEX|UPS|USPS|DHL/i);
   // Signature confirmation: bonus evidence. US rule (Phase 0 row 8):
   // required for $750+ sales BEFORE Jan 26, 2026; recommended, not required,
   // after that date. No seed carries a signature artifact, so this is a gap
   // for every seeded dispute — recorded, never waived.
-  const signature = summaryHas(tracking, /SIGNATURE|SIGNED/i);
+  const signature =
+    summaryHas(tracking, /\b(SIGNATURE|SIGNED)\b/i) &&
+    !summaryHas(tracking, /\b(NO|WITHOUT|UNSIGNED|NOT)\s+(SIGNATURE|SIGNED)\b/i);
   const logTiesBuyer = Boolean(merchantLog) && /post-delivery|used product|access/i.test(merchantLog!.summary);
   const invoiceConsistent = Boolean(invoice);
 
@@ -129,19 +135,26 @@ export function actionForVerdict(v: Verdict): string {
   }
 }
 
-/** Illustrative EV — not a PayPal outcome prediction. */
+/** Illustrative EV — not a PayPal outcome prediction.
+ *  Stage-aware concede fee (Phase 0 row 9): the $15 standard fee is NOT
+ *  charged on disputes resolved directly with the buyer, which is what
+ *  conceding at INQUIRY is. CLAIM / CHARGEBACK concede pays the fee.
+ *  ev_contest keeps the fee in the loss branch (worst case if contested
+ *  and lost). */
 export function evDisplay(
   score: number,
   amountUsd: number,
   feeUsd: number = STANDARD_DISPUTE_FEE_USD,
+  stage: string = "CLAIM",
 ): EvDisplay {
   const p = score / 100;
+  const concedeFee = stage === "INQUIRY" ? 0 : feeUsd;
   return {
     ev_contest: +(p * amountUsd - (1 - p) * (amountUsd + feeUsd)).toFixed(2),
-    concede_cost: +(amountUsd + feeUsd).toFixed(2),
+    concede_cost: +(amountUsd + concedeFee).toFixed(2),
     offer_cost: +(amountUsd * 0.4).toFixed(2),
     fee_usd: feeUsd,
     fee_basis:
-      "US Standard Dispute Fee $15 (PayPal merchant fee schedule, last updated Oct 1, 2026). High-volume $30 / chargeback $20 are separate routes.",
+      "US Standard Dispute Fee $15 (PayPal merchant fee schedule, last updated Oct 1, 2026). Waived when resolved directly with the buyer (INQUIRY concede) or decided in the seller's favour. High-volume $30 / chargeback $20 are separate routes.",
   };
 }

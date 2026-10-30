@@ -51,6 +51,24 @@ const A = "PP-D-88412";
 const B = "PP-D-88413";
 const C = "PP-D-88414";
 
+// T0 — #9: pre-swarm PDF for A (no run yet) shows pass-1 only: score 60
+// (not 85), a PRE-SWARM PREVIEW label, and NO merchant-log content.
+{
+  const res = await fetch(`${BASE}/api/disputes/${A}/evidence.pdf`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  check("T0 pre-swarm PDF A → 200", 200, res.status);
+  const tmp = `/tmp/negtest-preswarm-${A}.pdf`;
+  fs.writeFileSync(tmp, buf);
+  const text = pdftotext(tmp);
+  if (text !== null) {
+    check("T0 pre-swarm PDF shows score 60 (not 85)", true, text.includes("60/100"));
+    check("T0 pre-swarm PDF labelled PRE-SWARM PREVIEW", true, text.includes("PRE-SWARM PREVIEW"));
+    check("T0 pre-swarm PDF has no merchant-log content", false, text.includes("license key activated"));
+  } else {
+    console.log(`(pdftotext unavailable — text checks skipped for T0)`);
+  }
+}
+
 // T1 — execute without approval must refuse (403 APPROVAL_REQUIRED).
 {
   const r = await call("POST", `/api/disputes/${A}/execute`, {});
@@ -80,6 +98,17 @@ const C = "PP-D-88414";
   check("T2b approve before any run → 409", 409, r.status, r.json?.error);
 }
 
+// T12 — #6: per-dispute allowed actions. A carries accept_claim only in
+// its allowed_response_options, so its seeded list omits make-offer:
+// approving make-offer on A must refuse (409) even though the arbiter's
+// type check alone would pass (make_offer absent = "cannot verify").
+{
+  const r = await call("POST", `/api/disputes/${A}/approve`, { action: "make-offer" });
+  check("T12 approve make-offer on A → 409", 409, r.status, r.json?.error);
+  check("T12 A still suggests provide-evidence", "provide-evidence", r.json?.suggested_action);
+  check("T12 A allowed_actions omits make-offer", false, (r.json?.allowed_actions ?? []).includes("make-offer"));
+}
+
 // T3 — run swarm on A: v1 rejected (named log gap), v2 passes, score 85.
 {
   const r = await call("POST", `/api/disputes/${A}/run`, {});
@@ -90,6 +119,19 @@ const C = "PP-D-88414";
   check("T3 A v2 accepted", true, run?.iterations?.[1]?.accepted);
   check("T3 A final score 85", 85, run?.score);
   check("T3 A verdict CONTEST_HARD_PROOF", "CONTEST_HARD_PROOF", run?.verdict);
+  // #5: INQUIRY concede waives the $15 fee (Phase 0 row 9) — A concedes at $480, not $495.
+  check("T3 A ev concede_cost is $480 (INQUIRY, fee waived)", 480, run?.ev_display?.concede_cost);
+}
+
+// T15 — #7: /api/disputes hydrates latest runs, so the ledger keeps
+// Iterations / Score / Verdict after a browser reload (no NOT RUN reset).
+{
+  const r = await call("GET", "/api/disputes");
+  check("T15 GET /api/disputes → 200", 200, r.status);
+  check("T15 latest_runs includes A", true, Boolean(r.json?.latest_runs?.[A]));
+  check("T15 latest run A score 85", 85, r.json?.latest_runs?.[A]?.score);
+  check("T15 latest run A has 2 iterations", 2, r.json?.latest_runs?.[A]?.iterations?.length);
+  check("T15 telemetry runs_completed is 1", 1, r.json?.telemetry?.runs_completed);
 }
 
 // T4 — approve A provide-evidence.
@@ -122,6 +164,8 @@ const C = "PP-D-88414";
   check("T7 run B → 200", 200, run.status);
   check("T7 B verdict DE_ESCALATE_OFFER", "DE_ESCALATE_OFFER", run.json?.run?.verdict);
   check("T7 B score 60", 60, run.json?.run?.score);
+  // #5: INQUIRY concede waives the $15 fee — B concedes at $210, not $225.
+  check("T7 B ev concede_cost is $210 (INQUIRY, fee waived)", 210, run.json?.run?.ev_display?.concede_cost);
   const appr = await call("POST", `/api/disputes/${B}/approve`, { action: "make-offer" });
   check("T7 approve B make-offer → 200", 200, appr.status);
   check("T7 default offer is 40% = $84.00", "84.00", appr.json?.approval?.offer_amount?.value);
@@ -145,6 +189,8 @@ const C = "PP-D-88414";
   check("T8 run C → 200", 200, run.status);
   check("T8 C verdict CONCEDE_FAST_SETTLE", "CONCEDE_FAST_SETTLE", run.json?.run?.verdict);
   check("T8 C score 0", 0, run.json?.run?.score);
+  // #5: INQUIRY concede waives the $15 fee — C concedes at $95, not $110.
+  check("T8 C ev concede_cost is $95 (INQUIRY, fee waived)", 95, run.json?.run?.ev_display?.concede_cost);
   const appr = await call("POST", `/api/disputes/${C}/approve`, { action: "accept-claim" });
   check("T8 approve C accept-claim → 200", 200, appr.status);
   const ex = await call("POST", `/api/disputes/${C}/execute`, {});
@@ -205,6 +251,55 @@ for (const id of [A, B, C]) {
   }
 }
 
+// T13 — #7: execute must re-check offer/accept TYPES at execution time.
+// B was approved for make-offer (REFUND in offer_types). Mutate the stored
+// dispute so REFUND drops out of offer_types, then execute must refuse
+// 409 DISALLOWED_ACTION — approve-time approval is not enough.
+{
+  const mut = await call("POST", "/api/demo/mutate-dispute", {
+    dispute_id: B,
+    allowed_response_options: {
+      make_offer: { offer_types: ["REFUND_WITH_RETURN"] },
+      accept_claim: { accept_claim_types: ["REFUND"] },
+    },
+  });
+  check("T13 setup mutate B options → 200", 200, mut.status);
+  const r = await call("POST", `/api/disputes/${B}/execute`, {});
+  check("T13 execute after type drift → 409", 409, r.status, r.json?.error);
+  check("T13 error is DISALLOWED_ACTION", "DISALLOWED_ACTION", r.json?.error);
+}
+
+// T14 — #3: a merchant record with non-WinAnsi characters (→, smart quotes,
+// ₹, non-breaking space) must still render a PDF 200, not crash the route
+// with a 500. The sanitizer maps → to "->" and ₹ to "?" before pdf-lib
+// measures the text.
+{
+  const mut = await call("POST", "/api/demo/mutate-dispute", {
+    dispute_id: A,
+    set_artifacts: [
+      { kind: "tracking", summary: "FEDEX 774829104829, DELIVERED → signed “receipt” ₹500\u00A0paid" },
+      { kind: "invoice", summary: "Invoice INV-SIM-2026-480 + order record present" },
+      { kind: "merchant_log", summary: "Buyer used product post-delivery" },
+    ],
+  });
+  check("T14 setup set Unicode artifacts on A → 200", 200, mut.status);
+  const res = await fetch(`${BASE}/api/disputes/${A}/evidence.pdf`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  check("T14 Unicode PDF → 200", 200, res.status);
+  check("T14 Unicode PDF content-type", "application/pdf", res.headers.get("content-type"));
+  const tmp = `/tmp/negtest-unicode-${A}.pdf`;
+  fs.writeFileSync(tmp, buf);
+  const text = pdftotext(tmp);
+  if (text !== null) {
+    check("T14 PDF sanitizes → to ->", true, text.includes("->"));
+    check("T14 PDF still contains SIMULATED", true, text.includes("SIMULATED"));
+    check("T14 PDF still has all 5 sections", true,
+      ["Evidence dossier", "Invoice / order record", "Tracking / fulfillment proof", "Merchant-log correlation", "Evidence manifest"].every((s) => text.includes(s)));
+  } else {
+    console.log(`(pdftotext unavailable — text checks skipped for T14)`);
+  }
+}
+
 // ---- write the report ----
 const now = new Date().toISOString();
 const passed = results.filter((r) => r.pass).length;
@@ -229,6 +324,13 @@ ${results.map((r) => `| ${r.name} | ${r.expected} | ${r.actual}${r.detail ? ` ($
 - **T9** — Duplicate webhook event dedupes: second replay is ignored, no second run; the webhook log records DUPLICATE_IGNORED.
 - **T10** — Fake webhook (bad signature / no config) is answered 200, ignored, and logged — never executed.
 - **T11** — Evidence PDFs generate for all 3 scenarios: 200, application/pdf, under 10 MB, SHA-256 header present, SIMULATED watermark + all 5 sections present.
+- **T0** — Pre-swarm PDF leak (#9): downloading A's dossier before any run shows score 60 (pass-1 only), a PRE-SWARM PREVIEW label, and no merchant-log content.
+- **T15** — Ledger hydration (#7): /api/disputes returns latest_runs, so grid rows keep Iterations / Score / Verdict after a browser reload.
+- **T12** — Per-dispute allowed actions (#6): A omits make-offer (its allowed_response_options carries accept_claim only), so approving make-offer on A refuses 409 with provide-evidence still suggested.
+- **T13** — Execute re-checks offer/accept types (#7): after REFUND drops out of B's offer_types between approve and execute, execute refuses 409 DISALLOWED_ACTION.
+- **T14** — WinAnsi sanitizer (#3): a tracking summary with →, smart quotes, ₹ and a non-breaking space still renders a PDF 200, with → sanitized to ->.
+- **T3/T7/T8** — Stage-aware EV (#5): INQUIRY concede costs the amount only (A $480, B $210, C $95) — the $15 fee is waived when resolved directly with the buyer (Phase 0 row 9).
+- **Unit checks** (scripts/unit-checks.ts) — scorer negation guards (#4: "NOT DELIVERED"/"UNDELIVERED"/"NO SIGNATURE" score 0, positive control 60), evidenceTypesFor live-read vs seed fallback (#2), stage-aware evDisplay (#5), hostile-Unicode PDF build (#3) and 25-artifact pagination (#9) — run separately, see below.
 
 ## Not covered here (needs Dhyey)
 - Live Sandbox execution (provide-evidence / make-offer / accept-claim against PayPal) — deliberately refused in this run; needs his Sandbox accounts + webhook.

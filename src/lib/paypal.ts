@@ -61,14 +61,23 @@ async function paypalFetch(
     );
   }
   const token = await fetchToken();
+  // Content-Type: only force application/json for non-FormData bodies.
+  // A FormData body (provide-evidence multipart, Phase 0 row 2) must let
+  // fetch auto-generate `multipart/form-data; boundary=...` — forcing
+  // application/json here would corrupt the upload (400/415 from PayPal).
+  const isFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string> | undefined),
+    Authorization: `Bearer ${token}`,
+  };
+  if (!isFormData && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      ...(init.headers ?? {}),
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers,
   });
   if (res.status === 401 && !retried) {
     cachedToken = null;

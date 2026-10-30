@@ -28,9 +28,26 @@ const SMALL = 9;
 
 export const PDF_SIZE_LIMIT_BYTES = 10 * 1024 * 1024; // 10 MB per file (Phase 0 row 2)
 
+/**
+ * pdf-lib's StandardFonts.Helvetica is WinAnsi-encoded (latin-1 subset):
+ * any character outside it (→, smart quotes, ₹, …) makes
+ * widthOfTextAtSize / drawText throw and the PDF route 500. Sanitize
+ * before measuring so live PayPal / merchant text can never crash the
+ * dossier. Characters with no WinAnsi equivalent become "?".
+ */
+function sanitizeWinAnsi(input: string): string {
+  return input
+    .replace(/→/g, "->")
+    .replace(/≥/g, ">=")
+    .replace(/≤/g, "<=")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[^\x20-\x7E\xA0-\xFF\u2013\u2014\n]/g, "?");
+}
+
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = [];
-  for (const raw of text.split("\n")) {
+  for (const raw of sanitizeWinAnsi(text).split("\n")) {
     const words = raw.split(/\s+/).filter(Boolean);
     let line = "";
     for (const w of words) {
@@ -147,6 +164,42 @@ function drawWrapped(
   return cy;
 }
 
+/**
+ * Paginating variant of drawWrapped for unbounded text (finding #9):
+ * wraps first, then draws line by line, starting a continuation page
+ * whenever the cursor would run into the footer (y < 60). Used for the
+ * merchant-log source record and anywhere a live record of unknown
+ * length is drawn. Pages 1–3 draw only bounded content (fixed strings +
+ * short dispute fields, worst case ~480pt from a 745pt start) and need
+ * no continuation.
+ */
+function drawWrappedPaged(
+  ctx: Ctx,
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  font: PDFFont,
+  size: number,
+  maxWidth: number,
+  continueTitle: string,
+  color = rgb(0.1, 0.1, 0.12),
+): { page: PDFPage; y: number } {
+  const lines = wrapText(text, font, size, maxWidth);
+  let cur = page;
+  let cy = y;
+  for (const line of lines) {
+    if (cy < 60) {
+      const next = newPage(ctx, continueTitle);
+      cur = next.page;
+      cy = next.y;
+    }
+    cur.drawText(line, { x, y: cy, size, font, color });
+    cy -= size + 4;
+  }
+  return { page: cur, y: cy };
+}
+
 function drawKv(
   page: PDFPage,
   pairs: [string, string][],
@@ -166,11 +219,25 @@ function drawKv(
 }
 
 /** Evidence types this dossier would send with provide-evidence.
- *  Only types PayPal requested for the dispute reason (Phase 0 row 3).
- *  make-offer / accept-claim send no evidence file — the dossier is then
- *  a review copy only, and the manifest says so. */
+ *  The live dispute detail is the authority: only types PayPal requested
+ *  (evidences[] with source REQUESTED_FROM_SELLER) are sent (Phase 0
+ *  row 2/3). The reason-based list below is ONLY the fallback for seeded
+ *  rows, whose raw_paypal_detail is null. ingest.ts already stores the
+ *  full live detail in raw_paypal_detail for Sandbox disputes. */
 export function evidenceTypesFor(dispute: Dispute, action: string): string[] {
   if (action !== "provide-evidence") return [];
+  const rawEvidences = (
+    dispute.raw_paypal_detail as {
+      evidences?: Array<{ evidence_type?: string; source?: string }>;
+    } | null
+  )?.evidences;
+  if (Array.isArray(rawEvidences) && rawEvidences.length > 0) {
+    const requested = rawEvidences
+      .filter((e) => !e.source || e.source === "REQUESTED_FROM_SELLER")
+      .map((e) => e.evidence_type)
+      .filter((t): t is string => Boolean(t));
+    if (requested.length > 0) return [...new Set(requested)];
+  }
   if (dispute.reason === "MERCHANDISE_OR_SERVICE_NOT_RECEIVED") {
     return ["PROOF_OF_FULFILLMENT"];
   }
@@ -179,6 +246,23 @@ export function evidenceTypesFor(dispute: Dispute, action: string): string[] {
 
 export function sha256Hex(input: string): string {
   return createHash("sha256").update(input, "utf-8").digest("hex");
+}
+
+/**
+ * Which artifacts a dossier may show (finding #9). Before the swarm has
+ * run (run === null), only Hound pass-1 sources — tracking + invoice —
+ * exist yet: the merchant log is fetched only after a Red-Team rejection
+ * (swarm.ts mirrors this filter). Showing all artifacts pre-swarm would
+ * print the merchant log and score 85 for A, contradicting the swarm's
+ * own pass-1 story (60, tracking+invoice only). After a run, all
+ * artifacts the swarm actually used are shown.
+ */
+export function artifactsForPdf(
+  artifacts: EvidenceArtifact[],
+  run: SwarmRun | null,
+): EvidenceArtifact[] {
+  if (run !== null) return artifacts;
+  return artifacts.filter((a) => a.kind === "tracking" || a.kind === "invoice");
 }
 
 export async function buildEvidencePdf(
@@ -193,7 +277,9 @@ export async function buildEvidencePdf(
   const ctx: Ctx = { doc, font, bold, simulated, pageNo: 0 };
   const maxW = PAGE_W - MARGIN * 2;
 
-  const { score, items } = scoreDispute(dispute, artifacts);
+  // Pre-swarm preview: score/print only pass-1 artifacts (finding #9).
+  const visibleArtifacts = artifactsForPdf(artifacts, run);
+  const { score, items } = scoreDispute(dispute, visibleArtifacts);
   const finalScore = run ? run.score : score;
   const verdict = run ? run.verdict : finalScore >= 75 ? "CONTEST_HARD_PROOF" : finalScore >= 35 ? "DE_ESCALATE_OFFER" : "CONCEDE_FAST_SETTLE";
   const action =
@@ -205,9 +291,9 @@ export async function buildEvidencePdf(
   const evidenceTypes = evidenceTypesFor(dispute, action);
   const generatedAt = new Date().toISOString();
 
-  const tracking = artifacts.find((a) => a.kind === "tracking");
-  const invoice = artifacts.find((a) => a.kind === "invoice");
-  const merchantLog = artifacts.find((a) => a.kind === "merchant_log");
+  const tracking = visibleArtifacts.find((a) => a.kind === "tracking");
+  const invoice = visibleArtifacts.find((a) => a.kind === "invoice");
+  const merchantLog = visibleArtifacts.find((a) => a.kind === "merchant_log");
 
   // ---- Page 1: cover ----
   {
@@ -243,6 +329,19 @@ export async function buildEvidencePdf(
       maxW,
     );
     cy -= 8;
+    if (run === null) {
+      cy = drawWrapped(
+        page,
+        "PRE-SWARM PREVIEW — the swarm has not run yet. This dossier shows only Hound pass-1 sources (tracking + invoice). The merchant log and other slow sources are not included, and the score below reflects partial evidence only.",
+        MARGIN,
+        cy,
+        bold,
+        BODY,
+        maxW,
+        rgb(0.6, 0.1, 0.1),
+      );
+      cy -= 8;
+    }
     drawWrapped(
       page,
       simulated
@@ -322,7 +421,7 @@ export async function buildEvidencePdf(
 
   // ---- Page 4: merchant-log correlation table ----
   {
-    const { page, y } = newPage(ctx, "Merchant-log correlation");
+    let { page, y } = newPage(ctx, "Merchant-log correlation");
     let cy = y;
     cy = drawWrapped(
       page,
@@ -354,7 +453,10 @@ export async function buildEvidencePdf(
       page.drawText(invoiceRef, { x: MARGIN + 360, y: cy, size: SMALL, font });
       cy -= 18;
       cy -= 6;
-      cy = drawWrapped(page, `Source record: ${merchantLog.summary}`, MARGIN, cy, font, SMALL, maxW);
+      // Unbounded live record — paginate instead of overflowing the footer.
+      const paged = drawWrappedPaged(ctx, page, `Source record: ${merchantLog.summary}`, MARGIN, cy, font, SMALL, maxW, "Merchant-log correlation (continued)");
+      page = paged.page;
+      cy = paged.y;
     } else {
       cy = drawWrapped(
         page,
@@ -370,7 +472,7 @@ export async function buildEvidencePdf(
 
   // ---- Page 5: evidence manifest ----
   {
-    const { page, y } = newPage(ctx, "Evidence manifest");
+    let { page, y } = newPage(ctx, "Evidence manifest");
     let cy = y;
     cy = drawWrapped(
       page,
@@ -382,7 +484,15 @@ export async function buildEvidencePdf(
       maxW,
     );
     cy -= 12;
-    for (const a of artifacts) {
+    for (const a of visibleArtifacts) {
+      // Pagination guard (finding #9): a live dispute can carry many
+      // artifacts; each takes ~32pt, so start a continuation page before
+      // the cursor would run into the footer.
+      if (cy < 110) {
+        const next = newPage(ctx, "Evidence manifest (continued)");
+        page = next.page;
+        cy = next.y;
+      }
       const canonical = JSON.stringify({ id: a.id, kind: a.kind, source: a.source, summary: a.summary, simulated: a.simulated });
       const hash = sha256Hex(canonical);
       cy = drawWrapped(page, `${a.id} [${a.kind}]${a.simulated ? " (SIMULATED)" : ""}`, MARGIN, cy, bold, SMALL, maxW);
@@ -390,6 +500,13 @@ export async function buildEvidencePdf(
       cy -= 4;
     }
     cy -= 6;
+    // Footer key-values are bounded (~150pt) — one pre-draw space check
+    // is enough; they never straddle a page break.
+    if (cy < 170) {
+      const next = newPage(ctx, "Evidence manifest (continued)");
+      page = next.page;
+      cy = next.y;
+    }
     cy = drawKv(
       page,
       [
