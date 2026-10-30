@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import type { ColDef } from "ag-grid-community";
@@ -26,11 +26,22 @@ interface Row {
   source: string;
 }
 
+interface Telemetry {
+  total_volume_usd: number;
+  capital_saved_usd: number;
+  fees_avoided_usd: number;
+  fee_basis: string;
+  avg_run_ms: number | null;
+  disputes_loaded: number;
+  runs_completed: number;
+  executions_succeeded: number;
+}
+
 interface Detail {
   dispute: Dispute;
   artifacts: EvidenceArtifact[];
   run: SwarmRun | null;
-  approval: { id: string; action: string; approved_by: string; approved_at: string } | null;
+  approval: { id: string; action: string; approved_by: string; approved_at: string; offer_amount?: { currency_code: string; value: string } } | null;
   execution: { paypal_status: string; note: string } | null;
 }
 
@@ -48,11 +59,14 @@ function verdictBadge(v: Verdict | null) {
 export default function Home() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [runs, setRuns] = useState<Record<string, SwarmRun>>({});
+  const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const gridRef = useRef<AgGridReact<Row> | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -61,6 +75,7 @@ export default function Home() {
       const res = await fetch("/api/disputes");
       const body = await res.json();
       setDisputes(body.disputes ?? []);
+      setTelemetry(body.telemetry ?? null);
       if (body.liveError) setNotice(`Live PayPal list failed (seeded demo still works): ${body.liveError}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -150,15 +165,17 @@ export default function Home() {
     [disputes, runs],
   );
 
-  const totalVolume = disputes.reduce(
-    (s, d) => s + parseFloat(d.amount.value),
-    0,
-  );
+  const totalVolume = telemetry
+    ? telemetry.total_volume_usd
+    : disputes.reduce((s, d) => s + parseFloat(d.amount.value), 0);
   const runDurations = Object.values(runs).map((r) => r.duration_ms);
   const avgRunMs =
-    runDurations.length > 0
+    telemetry?.avg_run_ms ??
+    (runDurations.length > 0
       ? Math.round(runDurations.reduce((a, b) => a + b, 0) / runDurations.length)
-      : null;
+      : null);
+  const capitalSaved = telemetry ? telemetry.capital_saved_usd : 0;
+  const feesAvoided = telemetry ? telemetry.fees_avoided_usd : 0;
 
   const columns: ColDef<Row>[] = [
     { field: "id", headerName: "Dispute ID", flex: 1.2, sortable: true, filter: true },
@@ -233,7 +250,7 @@ export default function Home() {
         </div>
         <div className="tele">
           <div className="label">Capital saved by swarm</div>
-          <div className="value">$0.00</div>
+          <div className="value">${capitalSaved.toFixed(2)}</div>
           <div className="note">
             Amount retained on contested disputes where evidence was accepted
             in Sandbox; $0 until a Sandbox execution succeeds
@@ -241,7 +258,7 @@ export default function Home() {
         </div>
         <div className="tele">
           <div className="label">Dispute fees avoided</div>
-          <div className="value">$0.00</div>
+          <div className="value">${feesAvoided.toFixed(2)}</div>
           <div className="note">
             Basis: US Standard Dispute Fee $15 (Oct 1, 2026 schedule); $0
             until a Sandbox execution succeeds
@@ -268,6 +285,19 @@ export default function Home() {
       <div className="main">
         <section className="ledger">
           <h2>Dispute ledger — AG Grid Community</h2>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input
+              type="search"
+              aria-label="Filter ledger"
+              placeholder="Filter: dispute ID, reason, status…"
+              value={filter}
+              onChange={(e) => {
+                setFilter(e.target.value);
+                gridRef.current?.api.setGridOption("quickFilterText", e.target.value);
+              }}
+              style={{ flex: 1, padding: "6px 10px", background: "#0d1117", color: "#e6edf3", border: "1px solid #30363d", borderRadius: 6 }}
+            />
+          </div>
           {disputes.length === 0 ? (
             <div className="empty">
               No disputes loaded.
@@ -280,8 +310,11 @@ export default function Home() {
           ) : (
             <div className="grid-wrap ag-theme-quartz-dark">
               <AgGridReact
+                ref={gridRef}
                 rowData={rows}
                 columnDefs={columns}
+                defaultColDef={{ resizable: true }}
+                rowSelection="single"
                 onRowClicked={(e) => e.data && loadDetail(e.data.id)}
                 pagination={true}
                 paginationPageSize={10}
@@ -438,12 +471,29 @@ export default function Home() {
                 <h3>Human approval gate</h3>
                 {detail.approval ? (
                   <p>
-                    Approved: <b>{detail.approval.action}</b> by{" "}
-                    {detail.approval.approved_by ?? "demo merchant"} at{" "}
+                    Approved: <b>{detail.approval.action}</b>
+                    {detail.approval.action === "make-offer" && detail.approval.offer_amount && (
+                      <>
+                        {" "}— offer{" "}
+                        <b>
+                          ${detail.approval.offer_amount.value}{" "}
+                          {detail.approval.offer_amount.currency_code}
+                        </b>{" "}
+                        (REFUND, buyer keeps the item)
+                      </>
+                    )}{" "}
+                    by {detail.approval.approved_by ?? "demo merchant"} at{" "}
                     {detail.approval.approved_at}
                   </p>
                 ) : (
                   <p>No approval yet. Nothing executes before approval.</p>
+                )}
+                {run?.verdict === "CONCEDE_FAST_SETTLE" && (
+                  <p className="gaplist">
+                    Manual next step (not automated): file a carrier insurance
+                    claim for the lost package — PHALANX does not file claims
+                    automatically.
+                  </p>
                 )}
                 {detail.execution && (
                   <p className="gaplist">

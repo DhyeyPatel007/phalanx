@@ -1,6 +1,6 @@
 # PHALANX — Negative tests (brief §10.5)
 
-Run: 2026-10-30T12:32:32.378Z against a fresh production build (`npm run build` + `next start`).
+Run: 2026-10-30T12:34:02.016Z against a fresh production build (`npm run build` + `next start`).
 Script: `scripts/negative-tests.mjs` (`PHALANX_BASE_URL=http://localhost:3100 node scripts/negative-tests.mjs`).
 Result: **60/60 passed**.
 
@@ -25,7 +25,7 @@ No live PayPal calls are made in any test. Seeded disputes only.
 | T4 approved action | provide-evidence | provide-evidence | PASS |
 | T5 execute A (seeded, approved) → 409 | 409 | 409 (LIVE_EXECUTION_NOT_ENABLED) | PASS |
 | T5 error is LIVE_EXECUTION_NOT_ENABLED | LIVE_EXECUTION_NOT_ENABLED | LIVE_EXECUTION_NOT_ENABLED | PASS |
-| T5 idempotency key recorded | true | true (PP-D-88412:provide-evidence:appr-PP-D-88412-1793363551767) | PASS |
+| T5 idempotency key recorded | true | true (PP-D-88412:provide-evidence:appr-PP-D-88412-1793363641511) | PASS |
 | T6 re-run A → 200 | 200 | 200 | PASS |
 | T6 execute with stale approval → 409 | 409 | 409 (STALE_APPROVAL) | PASS |
 | T6 error is STALE_APPROVAL | STALE_APPROVAL | STALE_APPROVAL | PASS |
@@ -52,19 +52,19 @@ No live PayPal calls are made in any test. Seeded disputes only.
 | T10 webhook log records the fake event | true | true | PASS |
 | T11 PDF PP-D-88412 → 200 | 200 | 200 | PASS |
 | T11 PDF PP-D-88412 content-type | application/pdf | application/pdf | PASS |
-| T11 PDF PP-D-88412 under 10 MB | true | true (7743 bytes) | PASS |
+| T11 PDF PP-D-88412 under 10 MB | true | true (7745 bytes) | PASS |
 | T11 PDF PP-D-88412 has SHA-256 header | true | true | PASS |
 | T11 PDF PP-D-88412 contains SIMULATED watermark | true | true | PASS |
 | T11 PDF PP-D-88412 has all 5 sections | true | true | PASS |
 | T11 PDF PP-D-88413 → 200 | 200 | 200 | PASS |
 | T11 PDF PP-D-88413 content-type | application/pdf | application/pdf | PASS |
-| T11 PDF PP-D-88413 under 10 MB | true | true (7569 bytes) | PASS |
+| T11 PDF PP-D-88413 under 10 MB | true | true (7571 bytes) | PASS |
 | T11 PDF PP-D-88413 has SHA-256 header | true | true | PASS |
 | T11 PDF PP-D-88413 contains SIMULATED watermark | true | true | PASS |
 | T11 PDF PP-D-88413 has all 5 sections | true | true | PASS |
 | T11 PDF PP-D-88414 → 200 | 200 | 200 | PASS |
 | T11 PDF PP-D-88414 content-type | application/pdf | application/pdf | PASS |
-| T11 PDF PP-D-88414 under 10 MB | true | true (7330 bytes) | PASS |
+| T11 PDF PP-D-88414 under 10 MB | true | true (7331 bytes) | PASS |
 | T11 PDF PP-D-88414 has SHA-256 header | true | true | PASS |
 | T11 PDF PP-D-88414 contains SIMULATED watermark | true | true | PASS |
 | T11 PDF PP-D-88414 has all 5 sections | true | true | PASS |

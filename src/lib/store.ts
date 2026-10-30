@@ -121,6 +121,20 @@ export function latestRun(disputeId: string): SwarmRun | undefined {
   return cur[cur.length - 1];
 }
 
+/** Latest run per dispute (for server-side telemetry). */
+export function allLatestRuns(): SwarmRun[] {
+  const out: SwarmRun[] = [];
+  for (const cur of runs.values()) {
+    if (cur.length > 0) out.push(cur[cur.length - 1]);
+  }
+  return out;
+}
+
+/** All execution records (for server-side telemetry). */
+export function listExecutions(): ExecutionRecord[] {
+  return [...executions.values()];
+}
+
 export function setApproval(a: Approval): void {
   approvals.set(a.dispute_id, a);
 }
