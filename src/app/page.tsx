@@ -420,6 +420,21 @@ export default function Home() {
                   </pre>
                 </details>
 
+                <h3>Evidence dossier (PDF)</h3>
+                <p>
+                  <a
+                    href={`/api/disputes/${detail.dispute.id}/evidence.pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Download evidence dossier (PDF)
+                  </a>{" "}
+                  <span className="footnote">
+                    — preview before approval; SIMULATED watermark on seeded
+                    disputes.
+                  </span>
+                </p>
+
                 <h3>Human approval gate</h3>
                 {detail.approval ? (
                   <p>
