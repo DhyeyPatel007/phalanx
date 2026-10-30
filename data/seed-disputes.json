@@ -25,6 +25,7 @@
       "dispute_life_cycle_stage": "INQUIRY",
       "expected_verdict": "DE_ESCALATE_OFFER",
       "evidence": [
+        { "kind": "tracking", "summary": "FEDEX 991204477120, DELIVERED to PayPal transaction address (buyer received the item; dispute is about condition, not receipt)", "simulated": true },
         { "kind": "invoice", "summary": "Invoice + order record present; product photos subjective", "simulated": true }
       ]
     },
