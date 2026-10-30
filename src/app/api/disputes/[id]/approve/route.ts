@@ -41,6 +41,37 @@ export async function POST(
     );
   }
 
+  // Offer/accept TYPE check (adopted from Gemini package review, verified
+  // against the live guide: offer types live in
+  // allowed_response_options.make_offer.offer_types, accept types in
+  // allowed_response_options.accept_claim.accept_claim_types). Checked only
+  // when the dispute carries that data; absent means "cannot verify".
+  // Default offer type for Scenario B is REFUND (40% partial, buyer keeps item).
+  if (action === "make-offer") {
+    const types = dispute.allowed_response_options?.make_offer?.offer_types;
+    if (types && !types.includes("REFUND")) {
+      return NextResponse.json(
+        {
+          error: "offer type REFUND is not in allowed_response_options.make_offer.offer_types",
+          offer_types: types,
+        },
+        { status: 409 },
+      );
+    }
+  }
+  if (action === "accept-claim") {
+    const types = dispute.allowed_response_options?.accept_claim?.accept_claim_types;
+    if (types && !types.includes("REFUND")) {
+      return NextResponse.json(
+        {
+          error: "accept-claim type REFUND is not in allowed_response_options.accept_claim.accept_claim_types",
+          accept_claim_types: types,
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   const approval = {
     id: `appr-${id}-${Date.now()}`,
     dispute_id: id,

@@ -25,6 +25,7 @@ async function fetchToken(): Promise<string> {
   }
   const res = await fetch(`${BASE}/v1/oauth2/token`, {
     method: "POST",
+    cache: "no-store",
     headers: {
       Authorization:
         "Basic " +
@@ -62,6 +63,7 @@ async function paypalFetch(
   const token = await fetchToken();
   const res = await fetch(`${BASE}${path}`, {
     ...init,
+    cache: "no-store",
     headers: {
       ...(init.headers ?? {}),
       Authorization: `Bearer ${token}`,

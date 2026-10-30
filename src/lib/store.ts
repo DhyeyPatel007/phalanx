@@ -20,6 +20,7 @@ interface SeedDispute {
   status: string;
   dispute_life_cycle_stage: string;
   expected_verdict: string;
+  allowed_response_options?: Dispute["allowed_response_options"];
   evidence: { kind: string; summary: string; simulated: boolean }[];
 }
 
@@ -57,6 +58,7 @@ export function loadSeed(): Dispute[] {
       dispute_life_cycle_stage: s.dispute_life_cycle_stage,
       dispute_state: "REQUIRED_ACTION",
       allowed_actions: [...SEEDED_ALLOWED_ACTIONS],
+      allowed_response_options: s.allowed_response_options,
       raw_paypal_detail: null,
       created_at: new Date().toISOString(),
     };

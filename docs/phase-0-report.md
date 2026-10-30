@@ -61,3 +61,26 @@
 5. **AG Grid prize corrected** to $5,000 / $2,000 / $1,000×3 (Devpost official); total pool $69,750.
 6. **No MCP/Toolkit at all.** REST only, for every action.
 7. **Nothing is "verified live" yet.** Every row above is docs-verified only. A live Sandbox response is still required before any execution step (brief §10) — that needs Dhyey's Sandbox accounts, which do not exist yet in this run.
+
+## Addendum — Gemini Chat Steps 1–4 package (Oct 30, 2026)
+
+Dhyey pasted a Gemini Chat package (`gemini-basics-package.md`) covering the same steps 1–4. It was treated as **unverified input, not proof**: it gives only relative doc paths, no full URLs, and no live Sandbox response. The 12 rows above stand. Reconciliation outcome:
+
+- **Consistent, no change needed:** OAuth token endpoint, list/detail endpoints, multipart `provide-evidence` (50 MB / 10 MB), `make-offer` / `accept-claim` shapes, webhook verify endpoint + 7 fields, no buyer IP / no carrier photo, MCP/Toolkit has no evidence/offer tools, direct REST for all execution.
+- **Adopted (verified against the live guide, which I re-checked):**
+  - Offer-type check: `allowed_response_options.make_offer.offer_types` must include `REFUND` before approving a make-offer; same for `accept_claim.accept_claim_types`. Now enforced in `POST /api/disputes/{id}/approve` when the dispute carries that data (seeded rows now carry it).
+  - `cache: "no-store"` on PayPal fetches (avoids stale Next.js fetch cache).
+  - Execution-gate details: action-mismatch refusal and duplicate-execution (idempotency-key) refusal in `POST /api/disputes/{id}/execute`.
+  - Seed detail folded in (SIMULATED labels kept): delivery dates (A 2026-10-25, B 2026-10-24), invoice IDs (INV-SIM-2026-480 / -210), C carrier + tracking (USPS SIM-USPS-1109482, stalled 9 days), A merchant-log detail (license activation + 3 builds exported).
+- **Rejected, with reasons:**
+  - Gemini's Scenario A pass 1 scores **75 yet is "REJECTED"** — contradicts its own ≥75 → CONTEST rule. Kept the repo's literal-artifact scorer + gap-driven rejection (A v1 = 60, rejected on the named merchant-log gap; v2 = 85, accepted).
+  - Gemini row 11 ("make-offer restricted to INQUIRY; CHARGEBACK only provide-evidence/accept-claim") — a table claim; PayPal's own tables disagree (row 4 above), so the live response stays the only authority. Not adopted as fact.
+  - Gemini row 12 (Sandbox dispute creation) — a weaker subset of row 6 above (DISPUTE_CREATE scope + buyer consent + JWT). Kept the repo's version.
+  - `GEMINI_MODEL=gemini-2.5-flash` — unverified model ID; AI Studio evidence says Gemini 3.8 Flash is the default. Model left unset in `.env.example`.
+  - Gemini's seed format (top-level array, PayPal API shape) — not adopted; the repo's brief §7 format (`store.ts`) stays canonical.
+  - Gemini's webhook returning 401/500 on bad signatures — rejected; the brief requires answering 200 quickly (PayPal retries non-2xx up to 25× over 3 days) and logging + ignoring unverified events.
+  - Gemini's dispute-level dedupe (second event for the same dispute ignored) — rejected; event-level dedupe only, so legitimate follow-up events (e.g. DISPUTE.UPDATED) are not suppressed.
+  - Gemini's hardcoded dispute-ID branches in `swarm.ts` — rejected; the repo's loop is generic over any dispute.
+  - Gemini's Shipment Tracking API (`POST /v1/shipping/trackers-batch`) — optional enrichment, not adopted for basics; tracking goes in `provide-evidence` directly.
+  - Gemini's Phase 0 omits fees, Seller Protection, AG Grid prize, and the $100B/78% items entirely — those rows above stand unchanged.
+- Scores after reconciliation (re-smoke-tested): A 60→85 CONTEST_HARD_PROOF, B 60 DE_ESCALATE_OFFER, C 0 CONCEDE_FAST_SETTLE — unchanged.

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getApproval, getDispute, latestRun, setExecution } from "@/lib/store";
+import { getApproval, getDispute, getExecution, latestRun, setExecution } from "@/lib/store";
 
 /**
  * POST /api/disputes/{id}/execute — executes the approved action once.
@@ -12,7 +12,7 @@ import { getApproval, getDispute, latestRun, setExecution } from "@/lib/store";
  * build step 5, only after Dhyey confirms Sandbox accounts exist.
  */
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
@@ -34,6 +34,37 @@ export async function POST(
           "Execute refused: no human approval exists for this dispute. Approve first.",
       },
       { status: 403 },
+    );
+  }
+
+  // Action-mismatch check (adopted from Gemini package review): if the
+  // caller names an action, it must be the approved one.
+  const body = (await req.json().catch(() => ({}))) as { action?: string };
+  if (body.action && body.action !== approval.action) {
+    console.warn(
+      `[PHALANX] EXECUTE REFUSED ${id}: ACTION_MISMATCH — approved ${approval.action}, requested ${body.action}.`,
+    );
+    return NextResponse.json(
+      {
+        error: "ACTION_MISMATCH",
+        detail: `Execute refused: approved action (${approval.action}) does not match requested execution (${body.action}).`,
+      },
+      { status: 409 },
+    );
+  }
+
+  // Duplicate-execution check (idempotency key = dispute + action + approval).
+  const existing = getExecution(id);
+  if (existing && existing.paypal_status === "EXECUTED") {
+    console.warn(
+      `[PHALANX] EXECUTE REFUSED ${id}: DUPLICATE_EXECUTION — idempotency key ${existing.idempotency_key} already executed.`,
+    );
+    return NextResponse.json(
+      {
+        error: "DUPLICATE_EXECUTION",
+        detail: `Execute refused: idempotency key ${existing.idempotency_key} has already been executed.`,
+      },
+      { status: 409 },
     );
   }
 

@@ -20,6 +20,12 @@ export interface Dispute {
   /** Actions the live dispute allows (from HATEOAS links / allowed_response_options).
    *  For seeded disputes this is a SIMULATED list — live gating applies only to Sandbox rows. */
   allowed_actions: string[];
+  /** Offer/accept types the live dispute allows (from allowed_response_options).
+   *  Checked when present; absent means "cannot verify from this response". */
+  allowed_response_options?: {
+    make_offer?: { offer_types: string[] };
+    accept_claim?: { accept_claim_types: string[] };
+  };
   raw_paypal_detail: Record<string, unknown> | null;
   created_at: string;
 }

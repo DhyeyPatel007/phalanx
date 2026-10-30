@@ -86,6 +86,7 @@ export async function ingestVerifiedEvent(
       dispute_life_cycle_stage: (detail.dispute_life_cycle_stage as string) ?? "INQUIRY",
       dispute_state: (detail.dispute_state as string) ?? "OPEN_INQUIRIES",
       allowed_actions: allowed,
+      allowed_response_options: (detail.allowed_response_options as Dispute["allowed_response_options"]) ?? undefined,
       raw_paypal_detail: detail,
       created_at: (detail.create_time as string) ?? new Date().toISOString(),
     };
