@@ -104,6 +104,8 @@ export interface SwarmRun {
   status: "RUNNING" | "TRIAGED" | "AWAITING_APPROVAL" | "EXECUTED" | "EXECUTION_FAILED";
   duration_ms: number;
   created_at: string;
+  issue_framing?: string;
+  verdict_reasoning?: string;
 }
 
 export interface Approval {

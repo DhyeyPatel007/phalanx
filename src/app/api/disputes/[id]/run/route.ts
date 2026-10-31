@@ -13,7 +13,7 @@ export async function POST(
   if (!dispute) {
     return NextResponse.json({ error: "dispute not found" }, { status: 404 });
   }
-  const run = runSwarm(dispute);
+  const run = await runSwarm(dispute);
   addRun(run);
   return NextResponse.json({ run });
 }

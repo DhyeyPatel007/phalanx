@@ -6,7 +6,16 @@ Adversarial dispute-defense workbench for a small PayPal merchant. Built for the
 
 When PayPal sends a `CUSTOMER.DISPUTE.CREATED` webhook, PHALANX pulls the dispute + original transaction, assembles the merchant's own evidence, runs a deterministic checklist, drafts a rebuttal, attacks it with a second adversarial pass (max 3 iterations), and — only after a human approves — executes exactly one PayPal action: `provide-evidence` OR `make-offer` OR `accept-claim`.
 
-> Status (Oct 31, 2026): **basics + steps 5–7 (no-live part) done and pushed, plus a Gemini audit refine (13 fixes).** Phase 0, skeleton, webhook, scorer/swarm, PDF dossier, offer/accept paths, negative tests (84/84), telemetry, README. Still no live Sandbox execution — that needs Dhyey's Sandbox accounts.
+> Status (Oct 31, 2026): **basics + steps 5–7 + Phase 1 LLM wiring (multi-provider system, 3-juror layer, Judge framing, Vercel deploy button).** Negative tests (84/84), unit checks, telemetry, deterministic fallback preserved. Still no live Sandbox execution — that needs Dhyey's Sandbox accounts.
+
+## Deploy your own copy
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FDhyeyPatel007%2Fphalanx)
+
+1. Click **Deploy with Vercel** above to clone and deploy to your Vercel account.
+2. (Optional) Set `GEMINI_API_KEY` (or your preferred AI provider key) in your Vercel project environment variables.
+3. Deploy! The seeded demo runs immediately with zero configuration.
+4. For live PayPal Sandbox testing, add `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `PAYPAL_WEBHOOK_ID`.
 
 ## Live demo
 
@@ -15,7 +24,7 @@ When PayPal sends a `CUSTOMER.DISPUTE.CREATED` webhook, PHALANX pulls the disput
 ## What it does
 - Webhook ingest + signature verification + idempotent dispute creation
 - Dispute list + detail from the live Disputes API (Sandbox), merged with seeded merchant evidence
-- Deterministic evidence checklist + score (0–100), Prosecutor draft, Red-Team adversarial pass, full debate transcript
+- Deterministic evidence checklist + score (0–100), Prosecutor draft, 3-juror adversarial pass, full debate transcript
 - Human approval gate, then exactly one executed PayPal action per approved dispute
 - PDF evidence dossier (only evidence PayPal requested) — 5 pages: cover, invoice/order, tracking proof, merchant-log correlation, evidence manifest with SHA-256
 - Offer/accept paths with stage gating, offer/accept type checks, downgrade resolution, and an 84-test negative suite (`scripts/negative-tests.mjs`)
@@ -28,6 +37,22 @@ When PayPal sends a `CUSTOMER.DISPUTE.CREATED` webhook, PHALANX pulls the disput
 - No real-money / production PayPal. Sandbox only.
 - Checklist scores are an internal heuristic, NOT a win probability. PHALANX does not know how PayPal or a card issuer will decide a case.
 - Seeded data is simulated for the demo. A production version would need the merchant's real order, shipping, and support systems — that integration is not built here.
+
+## AI providers (general API system)
+
+PHALANX supports multiple OpenAI-compatible LLM providers through a unified interface (`src/lib/llm.ts`). The LLM drafts rebuttal wording (Prosecutor), evaluates gaps via 3 parallel jurors (Evidence, Policy, Buyer-Sympathy), and generates issue framing and verdict reasoning (Judge). The checklist score, verdict routing, and approval gates remain 100% deterministic code.
+
+### Supported providers
+- **Gemini** (default): `LLM_PROVIDER=gemini`, default model `gemini-3.8-flash`, env `GEMINI_API_KEY`. Connects via Google's OpenAI-compatible endpoint. *Free-tier note:* Google AI Studio provides a free tier verified at $0.
+- **OpenAI**: `LLM_PROVIDER=openai`, default model `gpt-4o-mini`, env `OPENAI_API_KEY`.
+- **xAI Grok**: `LLM_PROVIDER=grok`, default model `grok-4`, env `XAI_API_KEY`.
+- **DeepSeek**: `LLM_PROVIDER=deepseek`, default model `deepseek-chat`, env `DEEPSEEK_API_KEY`.
+- **Moonshot Kimi**: `LLM_PROVIDER=kimi`, default model `kimi-k2.5`, env `MOONSHOT_API_KEY`.
+- **Groq**: `LLM_PROVIDER=groq`, default model `llama-3.3-70b-versatile`, env `GROQ_API_KEY`.
+- **Custom**: `LLM_PROVIDER=custom`, base URL `LLM_BASE_URL`, model `LLM_MODEL`, key `LLM_API_KEY`.
+
+### Deterministic fallback
+If no API key is configured or if a provider call fails, PHALANX silently and reliably falls back to deterministic template rebuttal drafting, single deterministic Red-Team review, and standard score breakdown. The app never crashes or stalls when an LLM is unavailable.
 
 ## Demo scenarios (seeded, labelled SIMULATED)
 | ID | Reason | Amount | Expected outcome |
@@ -62,7 +87,7 @@ PHALANX_BASE_URL=http://localhost:3100 node scripts/negative-tests.mjs
 - **PayPal Disputes API (Sandbox)** — list/detail, webhook verification; execution calls are wired through the approval gate but refuse live calls until Sandbox is connected.
 - **AG Grid Community** — the dispute ledger (sorting, filtering, quick filter, pagination). No Enterprise features.
 - **pdf-lib** — server-side evidence dossier generation.
-- **LLM: none called in this build.** The Prosecutor drafts from a fixed template + artifacts only. The Prosecutor / Red-Team prompt text lives in the project files for audit; wiring Gemini (Dhyey's existing Google AI Pro access) is future work, and the LLM would draft wording only — never score, never execute.
+- **LLM: Multi-provider support via OpenAI-compatible API (`src/lib/llm.ts`).** Supports Gemini (default), OpenAI, Grok, DeepSeek, Kimi, Groq, and custom endpoints. The LLM drafts rebuttal wording (Prosecutor), runs a 3-agent jury audit (Evidence, Policy, Buyer-Sympathy), and provides issue framing (Judge). The verdict, score, and PayPal execution gates remain 100% deterministic code. With no key, PHALANX falls back seamlessly to deterministic templates.
 - **Next.js 16 (App Router) + TypeScript**, in-memory/JSON evidence store. No database, no queue, no extra services.
 
 ## Known limits

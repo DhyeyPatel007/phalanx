@@ -1,18 +1,19 @@
 // PHALANX unit checks — pure-function regression tests for the Gemini
-// audit fixes (Oct 30, 2026). Run with:
-//   rm -rf /tmp/phalanx-unit && npx tsc scripts/unit-checks.ts --ignoreConfig \
-//     --module commonjs --target es2022 --moduleResolution bundler \
-//     --esModuleInterop --skipLibCheck --outDir /tmp/phalanx-unit \
-//     && NODE_PATH=$PWD/node_modules node /tmp/phalanx-unit/scripts/unit-checks.js
-// (The --ignoreConfig + bundler flags are needed because the project
-// tsconfig is Next-oriented; type errors about node globals in this
-// standalone compile are expected and do not block emit.)
+// audit fixes (Oct 30, 2026) + Phase 1 LLM wiring & jury layer (Oct 31, 2026).
 // Exits non-zero on any failure. No server, no live PayPal calls.
 
 import { PDFDocument } from "pdf-lib";
 import { artifactsFromDetail } from "../src/lib/ingest";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
 import { evDisplay, scoreDispute } from "../src/lib/scorer";
+import { draft, getProviderConfig, PROVIDER_REGISTRY } from "../src/lib/llm";
+import {
+  aggregateJuryGaps,
+  draftProsecutor,
+  parseJudgeOutput,
+  rebuttalFromTemplate,
+  validateDraftAmounts,
+} from "../src/lib/swarm";
 import type { Dispute, EvidenceArtifact, SwarmRun } from "../src/lib/types";
 
 let failures = 0;
@@ -135,9 +136,6 @@ async function pdfChecks(): Promise<void> {
   const loaded = await PDFDocument.load(bytes);
   check("#3 hostile-Unicode PDF has 5 pages", 5, loaded.getPageCount());
 
-  // 25 artifacts x ~30pt each = ~750pt > ~674pt available on page 5, so
-  // the pagination guard must start a continuation page (12 would still
-  // fit on one page — verified by arithmetic, not assumed).
   const many: EvidenceArtifact[] = Array.from({ length: 25 }, (_, i) =>
     artifact(`m${i + 1}`, "invoice", `Invoice INV-TEST-${i + 1} + order record present`),
   );
@@ -179,8 +177,116 @@ async function pdfChecks(): Promise<void> {
   check("#9 after a run shows all artifacts", 3, artifactsForPdf(all, { id: "run-x" } as SwarmRun).length);
 }
 
+// ---- Phase 1: LLM provider registry checks ----
+{
+  const expectedProviders = ["gemini", "openai", "grok", "deepseek", "kimi", "groq", "custom"];
+  check("LLM provider registry contains all 7 providers", expectedProviders.length, Object.keys(PROVIDER_REGISTRY).length);
+  for (const name of expectedProviders) {
+    check(`LLM registry has ${name}`, true, Boolean(PROVIDER_REGISTRY[name]));
+  }
+
+  // Base URLs
+  check("gemini baseUrl", "https://generativelanguage.googleapis.com/v1beta/openai", PROVIDER_REGISTRY.gemini.baseUrl);
+  check("openai baseUrl", "https://api.openai.com/v1", PROVIDER_REGISTRY.openai.baseUrl);
+  check("grok baseUrl", "https://api.x.ai/v1", PROVIDER_REGISTRY.grok.baseUrl);
+  check("deepseek baseUrl", "https://api.deepseek.com/v1", PROVIDER_REGISTRY.deepseek.baseUrl);
+  check("kimi baseUrl", "https://api.moonshot.ai/v1", PROVIDER_REGISTRY.kimi.baseUrl);
+  check("groq baseUrl", "https://api.groq.com/openai/v1", PROVIDER_REGISTRY.groq.baseUrl);
+
+  // Default models
+  check("gemini default model", "gemini-3.8-flash", PROVIDER_REGISTRY.gemini.defaultModel);
+  check("openai default model", "gpt-4o-mini", PROVIDER_REGISTRY.openai.defaultModel);
+  check("grok default model", "grok-4", PROVIDER_REGISTRY.grok.defaultModel);
+  check("deepseek default model", "deepseek-chat", PROVIDER_REGISTRY.deepseek.defaultModel);
+  check("kimi default model", "kimi-k2.5", PROVIDER_REGISTRY.kimi.defaultModel);
+  check("groq default model", "llama-3.3-70b-versatile", PROVIDER_REGISTRY.groq.defaultModel);
+
+  // Default provider lookup
+  check("default provider lookup resolves gemini", "gemini", getProviderConfig()?.name);
+}
+
+// ---- Phase 1: draft() returns null when no key is configured ----
+async function draftNoKeyChecks(): Promise<void> {
+  const savedKey = process.env.GEMINI_API_KEY;
+  const savedProvider = process.env.LLM_PROVIDER;
+  const savedUniversal = process.env.LLM_API_KEY;
+  try {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.LLM_API_KEY;
+    process.env.LLM_PROVIDER = "gemini";
+
+    const res = await draft("test prompt");
+    check("draft() returns null immediately when no key is configured", null, res);
+  } finally {
+    if (savedKey) process.env.GEMINI_API_KEY = savedKey;
+    if (savedProvider) process.env.LLM_PROVIDER = savedProvider;
+    if (savedUniversal) process.env.LLM_API_KEY = savedUniversal;
+  }
+}
+
+// ---- Phase 1: Prosecutor fallback to template on unconfigured key / provider failure ----
+async function prosecutorFallbackChecks(): Promise<void> {
+  const d = dispute({ id: "PP-D-PROS" });
+  const arts = [
+    artifact("t1", "tracking", "FEDEX 123456, DELIVERED"),
+    artifact("i1", "invoice", "Invoice INV-PROS-1"),
+  ];
+
+  // Without key, draftProsecutor must return the exact rebuttalFromTemplate output
+  const template = rebuttalFromTemplate(d, arts, "v1");
+  const draftResult = await draftProsecutor(d, arts, "v1", "provide-evidence");
+  check("draftProsecutor falls back to rebuttalFromTemplate with no key", template, draftResult);
+
+  // validateDraftAmounts guard checks
+  const safeText = "Rebuttal for dispute PP-D-PROS: $100.00 is disputed, plus standard fee $15.00.";
+  check("validateDraftAmounts accepts allowed dispute amounts", true, validateDraftAmounts(safeText, d, arts));
+
+  const hallucinatedText = "Rebuttal: We demand a penalty payment of $4,999.00 from buyer!";
+  check("validateDraftAmounts rejects hallucinated $ amount", false, validateDraftAmounts(hallucinatedText, d, arts));
+}
+
+// ---- Phase 1: Jury gap aggregation (union, dedup) ----
+{
+  const evidenceGaps = ["Tracking number is missing carrier name", "Delivery date unconfirmed"];
+  const policyGaps = ["Delivery date unconfirmed", "Seller protection requires proof of fulfillment"];
+  const buyerGaps = ["Buyer claims item was not received", "Tracking number is missing carrier name"];
+
+  const aggregated = aggregateJuryGaps(evidenceGaps, policyGaps, buyerGaps);
+  check("Jury aggregation produces union with duplicates removed", 4, aggregated.length);
+  check("Jury aggregation retains unique gaps", true, aggregated.includes("Tracking number is missing carrier name"));
+  check("Jury aggregation retains policy gaps", true, aggregated.includes("Seller protection requires proof of fulfillment"));
+  check("Jury aggregation retains buyer gaps", true, aggregated.includes("Buyer claims item was not received"));
+}
+
+// ---- Phase 1: Judge output shape parsing ----
+{
+  const mockJudgeResponse = `
+ISSUE_FRAMING: The decisive question is whether delivery to the transaction address can be verified through merchant records.
+
+VERDICT_REASONING: The evidence score of 85/100 fulfills tracking and post-delivery merchant log requirements. This satisfies PayPal Seller Protection standards and strongly supports the CONTEST_HARD_PROOF routing policy.
+`;
+
+  const parsed = parseJudgeOutput(mockJudgeResponse);
+  check(
+    "Judge issueFraming parsed correctly",
+    "The decisive question is whether delivery to the transaction address can be verified through merchant records.",
+    parsed.issueFraming,
+  );
+  check(
+    "Judge verdictReasoning parsed correctly",
+    "The evidence score of 85/100 fulfills tracking and post-delivery merchant log requirements. This satisfies PayPal Seller Protection standards and strongly supports the CONTEST_HARD_PROOF routing policy.",
+    parsed.verdictReasoning,
+  );
+
+  const emptyParsed = parseJudgeOutput("Unformatted text with no labels");
+  check("Judge parse returns undefined for missing labels", undefined, emptyParsed.issueFraming);
+  check("Judge parse returns undefined for missing reasoning", undefined, emptyParsed.verdictReasoning);
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
+  await draftNoKeyChecks();
+  await prosecutorFallbackChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }

@@ -423,6 +423,21 @@ export default function Home() {
                   probability. Run time: {run.duration_ms} ms.
                 </p>
 
+                                {run.issue_framing && (
+                  <div style={{ margin: "12px 0", padding: "10px 14px", background: "#161b22", borderLeft: "3px solid #58a6ff", borderRadius: 4 }}>
+                    <div style={{ fontSize: 11, textTransform: "uppercase", color: "#8b949e", fontWeight: 600, marginBottom: 4 }}>
+                      Judge // Issue Framing & Reasoning
+                    </div>
+                    <p style={{ margin: 0, fontSize: 13, color: "#e6edf3" }}>
+                      <b>Issue:</b> {run.issue_framing}
+                    </p>
+                    {run.verdict_reasoning && (
+                      <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8b949e" }}>
+                        <b>Reasoning:</b> {run.verdict_reasoning}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <h3>Named gaps</h3>
                 {run.gaps.length === 0 ? (
                   <p>No gaps — every checklist item has an artifact.</p>
