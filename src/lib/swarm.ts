@@ -1,15 +1,16 @@
 // Prosecutor / Red-Team / Jury adversarial loop — brief §5, §7, §9.
+// MiroFish-learned agent personas and deliberation architecture.
 // Deterministic first, LLM second.
 // When an LLM key is configured:
-// - Prosecutor drafts via draft() (wording only, guarded against invented facts/amounts)
-// - 3 Jurors (Evidence, Policy, Buyer-Sympathy) evaluate the draft on the cheapest model
+// - Prosecutor drafts via draft() using a structured advocate persona
+// - 3 Jurors (Skeptical Merchant Auditor, PayPal Policy Stickler, Aggressive Buyer Advocate) evaluate the draft
 // - Gaps are aggregated deterministically (union, dedup)
-// - Judge provides issue framing + verdict reasoning (verdict itself is strictly deterministic)
+// - Judge synthesizes judicial issue framing + verdict reasoning (verdict itself is strictly deterministic)
 // When NO key is configured or on any failure:
 // - Falls back to rebuttalFromTemplate, single deterministic Red-Team check, and score breakdown.
 // Max 3 adversarial iterations — never loops forever, never silently passes.
 
-import { getArtifacts } from "./store";
+import { createPhaseTracker, getArtifacts } from "./store";
 import {
   actionForVerdict,
   evDisplay,
@@ -105,6 +106,7 @@ export function validateDraftAmounts(
 
 /**
  * Prosecutor drafts wording using LLM (if configured) or falls back to template.
+ * Uses an explicit advocate persona with strict evidence boundary rules.
  */
 export async function draftProsecutor(
   dispute: Dispute,
@@ -117,14 +119,16 @@ export async function draftProsecutor(
     return fallback;
   }
 
-  const system = `You are the Prosecutor agent in PHALANX, an adversarial dispute-defense workbench for PayPal merchants.
-Draft a factual, concise merchant rebuttal to be submitted to PayPal for dispute review.
-CRITICAL RULES:
-- Use ONLY facts, dates, tracking numbers, and amounts present in the provided evidence artifacts.
-- NEVER invent, hallucinate, or extrapolate facts, numbers, dates, tracking numbers, or dollar amounts.
-- Do NOT include any buyer PII (such as buyer personal email, phone numbers, or residential addresses) beyond the dispute ID.
-- State clearly that the requested action is: ${preferredAction}.
-- Be direct, professional, and audit-ready.`;
+  const system = `AGENT PERSONA:
+Role: Lead Merchant Dispute Advocate (Prosecutor) in PHALANX.
+Objective: Draft a rigorous, audit-ready merchant rebuttal to submit to PayPal dispute operations.
+Stance: Firm, factual, professional, protective of merchant revenue under PayPal Seller Protection terms.
+MANDATORY CONSTRAINTS:
+- Rely EXCLUSIVELY on facts, dates, tracking numbers, and dollar amounts present in the provided evidence artifacts.
+- NEVER invent, hallucinate, assume, or extrapolate facts, carrier statuses, tracking timestamps, or dollar figures.
+- Do NOT include buyer personal data (emails, personal phone numbers, physical home addresses) beyond the dispute ID.
+- Explicitly state the requested PayPal dispute action: ${preferredAction}.
+- Be direct, concise, and structured for swift human PayPal reviewer adjudication.`;
 
   const artifactLines = artifacts
     .map((a) => `- [${a.kind}] ${a.summary}${a.simulated ? " (SIMULATED)" : ""}`)
@@ -191,7 +195,11 @@ export interface JuryResults {
 }
 
 /**
- * Three jurors evaluate the draft in parallel using the cheapest model.
+ * Three distinct jurors evaluate the draft in parallel using the cheapest model.
+ * MiroFish persona architecture:
+ * 1. Evidence Juror (Skeptical Merchant Auditor)
+ * 2. Policy Juror (PayPal Policy Stickler)
+ * 3. Buyer-Sympathy Juror (Aggressive Buyer Advocate)
  * If any juror call fails, returns null to trigger deterministic fallback.
  */
 export async function runJury(
@@ -216,18 +224,30 @@ ${draftText}`;
 
   const prompts = [
     {
-      system:
-        "You are the Evidence Juror in PHALANX. Analyze the merchant rebuttal and evidence bundle. What concrete evidentiary proof is missing, ambiguous, or weak? Output bullet points of missing evidence gaps only.",
+      system: `AGENT PERSONA:
+Role: Skeptical Merchant Evidence Auditor (Juror 1) in PHALANX.
+Objective: Audit forensic evidence completeness, tracking verification, delivery confirmation, and invoice hashes.
+Stance: Rigorous, skeptical, evidentiary perfectionist.
+Task: Identify what concrete physical, digital, or courier proof is missing, unverified, or ambiguous in this draft.
+Output ONLY bullet points of missing evidence gaps. Never assume unstated facts.`,
       prompt: `${context}\n\nList all missing or weak evidence gaps:`,
     },
     {
-      system:
-        "You are the Policy Juror in PHALANX. Analyze the merchant rebuttal against PayPal dispute policies and Seller Protection rules. What rules or policy requirements are not satisfied? Output bullet points of policy gaps only.",
+      system: `AGENT PERSONA:
+Role: PayPal Dispute Resolution Policy Stickler (Juror 2) in PHALANX.
+Objective: Audit compliance with PayPal Seller Protection requirements, item condition rules, and deadline adherence.
+Stance: Formalist, unyielding compliance officer adhering strictly to PayPal User Agreement dispute criteria.
+Task: Identify what PayPal regulatory or policy requirements remain unsatisfied in this draft.
+Output ONLY bullet points of policy gaps.`,
       prompt: `${context}\n\nList all PayPal policy gaps:`,
     },
     {
-      system:
-        "You are the Buyer-Sympathy Juror in PHALANX. Adopt the buyer's perspective. How would an aggressive buyer or card issuer challenge this draft? Output bullet points of vulnerabilities/counter-arguments only.",
+      system: `AGENT PERSONA:
+Role: Aggressive Consumer & Cardholder Advocate (Juror 3) in PHALANX.
+Objective: Stress-test the merchant rebuttal from the buyer and issuing bank's perspective.
+Stance: Pro-consumer, vigilant against merchant overreach, questioning delivery accuracy and buyer satisfaction.
+Task: Identify vulnerabilities, ambiguities, or counter-arguments a buyer or card issuer would exploit.
+Output ONLY bullet points of buyer vulnerabilities.`,
       prompt: `${context}\n\nList all buyer attack vectors and vulnerabilities:`,
     },
   ];
@@ -271,6 +291,7 @@ export function parseJudgeOutput(text: string): {
 
 /**
  * Judge synthesizes issue framing and verdict reasoning in words only.
+ * Persona: Impartial Judicial Magistrate.
  * The verdict itself is NEVER decided by the Judge — it comes strictly from scorer.ts.
  */
 export async function runJudge(
@@ -284,9 +305,10 @@ export async function runJudge(
     return {};
   }
 
-  const system = `You are the Judge in PHALANX, an adversarial dispute-defense workbench.
-The dispute has ALREADY been deterministically scored: Score ${score}/100, Verdict ${verdict}.
-You do NOT decide the score or verdict. Your role is purely to provide judicial issue framing and reasoning.
+  const system = `AGENT PERSONA:
+Role: Impartial Judicial Magistrate (Judge) in PHALANX.
+Context: The dispute has ALREADY been deterministically scored: Score ${score}/100, Verdict ${verdict}.
+Boundary: You do NOT score the dispute or pick the verdict. You provide judicial issue framing and reasoning.
 Provide two labeled sections:
 ISSUE_FRAMING: Exactly one concise sentence stating the decisive legal/factual question of this dispute.
 VERDICT_REASONING: Two to three concise sentences explaining why the evidence checklist score of ${score}/100 and gaps support the ${verdict} routing policy under PayPal standards.`;
@@ -315,6 +337,8 @@ Remaining Gaps: ${gaps.length > 0 ? gaps.join("; ") : "None"}`;
  * Jury layer (3 jurors) audits the draft; if retrievable gaps exist, Hound fetches merchant log.
  * Max 3 iterations.
  * After scoring, Judge provides display framing and reasoning.
+ * Arbiter computes EV and routes dispute action.
+ * Live phase tracker records every lifecycle phase with real timestamps and durations.
  */
 export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
   const started = Date.now();
@@ -323,15 +347,22 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
   const iterations: SwarmIteration[] = [];
   const allArtifacts = getArtifacts(dispute.id);
 
+  // Initialize live phase tracker in the store
+  const tracker = createPhaseTracker(dispute.id, runId);
+
   const msg = (
     iteration: number,
     actor: string,
     kind: DebateMessage["kind"],
     text: string,
   ) => {
-    messages.push({ run_id: runId, iteration, actor, kind, text, timestamp: now() });
+    const m: DebateMessage = { run_id: runId, iteration, actor, kind, text, timestamp: now() };
+    messages.push(m);
+    tracker.addMessageToCurrentPhase(m);
   };
 
+  // Phase 1: Hound fast evidence gathering
+  tracker.startPhase("hound_init", "Hound gathering fast evidence", "Hound", 0);
   msg(
     0,
     "Hound",
@@ -347,6 +378,7 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
       `Artifact ${a.id} [${a.kind}] from ${a.source}: ${a.summary}${a.simulated ? " (SIMULATED)" : ""}`,
     );
   }
+  tracker.endPhase("hound_init", `${available.length} fast artifact(s) loaded`);
 
   let best: SwarmIteration | null = null;
 
@@ -357,9 +389,19 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     const scoreBefore = best ? best.score : 0;
     const version = `v${i}`;
 
-    // Prosecutor draft: LLM if configured and valid, otherwise template
+    // Prosecutor draft phase
+    tracker.startPhase(`prosecutor_v${i}`, `Prosecutor drafting rebuttal v${i}`, "Prosecutor", i);
     const draftText = await draftProsecutor(dispute, available, version, preferredAction);
     msg(i, "Prosecutor", "draft", draftText);
+    tracker.endPhase(`prosecutor_v${i}`, `Draft v${i} ready`);
+
+    // Red-Team & Jury deliberation phase
+    tracker.startPhase(
+      `redteam_jury_v${i}`,
+      `Red-Team & Jury attacking draft v${i}`,
+      "Red-Team / Jury",
+      i,
+    );
 
     // Jury layer (Evidence, Policy, Buyer-Sympathy jurors)
     const jury = await runJury(dispute, available, draftText);
@@ -404,10 +446,26 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     if (!accepted) {
       msg(i, "Red-Team", "critique", rejection);
       for (const g of deterministicGaps) msg(i, "Red-Team", "gap", `Gap: ${g}`);
+      tracker.endPhase(
+        `redteam_jury_v${i}`,
+        `REJECTED (${deterministicGaps.length} gap${deterministicGaps.length === 1 ? "" : "s"})`,
+      );
+
       const fetched = allArtifacts.filter(
         (a) => a.kind === "merchant_log" && !available.some((x) => x.id === a.id),
       );
+
+      if (i < MAX_ITERATIONS) {
+        tracker.scheduleNextIterationPhases(i + 1, fetched.length > 0);
+      }
+
       if (fetched.length > 0) {
+        tracker.startPhase(
+          `hound_deep_v${i + 1}`,
+          `Hound fetching deep merchant logs (iter ${i + 1})`,
+          "Hound",
+          i + 1,
+        );
         available = [...available, ...fetched];
         for (const a of fetched) {
           msg(
@@ -417,7 +475,9 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
             `Hound fetched on Red-Team demand — ${a.id} [${a.kind}] from ${a.source}: ${a.summary}${a.simulated ? " (SIMULATED)" : ""}`,
           );
         }
+        tracker.endPhase(`hound_deep_v${i + 1}`, `Fetched ${fetched.length} deep artifact(s)`);
       }
+
       const iteration: SwarmIteration = {
         iteration: i,
         draft_version: version,
@@ -443,12 +503,8 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     for (const g of deterministicGaps) {
       msg(i, "Red-Team", "gap", `Unfilled gap (recorded, not waived): ${g}`);
     }
-    msg(
-      i,
-      "Arbiter",
-      "verdict",
-      `Verdict ${verdict} → action ${preferredAction}. Awaiting human approval; nothing executes before approval.`,
-    );
+    tracker.endPhase(`redteam_jury_v${i}`, `ACCEPTED (${score}/100)`);
+
     const iteration: SwarmIteration = {
       iteration: i,
       draft_version: version,
@@ -468,8 +524,10 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
   const finalVerdict = best ? best.verdict : verdictForScore(finalScore);
   const finalGaps = best ? best.gaps : [];
   const amount = parseFloat(dispute.amount.value);
+  const finalAction = actionForVerdict(finalVerdict);
 
-  // Judge framing + reasoning (words only, verdict stays strictly deterministic)
+  // Judge framing phase
+  tracker.startPhase("judge_framing", "Judge framing issue & verdict rationale", "Judge", 0);
   const judge = await runJudge(dispute, finalScore, finalVerdict, available, finalGaps);
   if (judge.issueFraming || judge.verdictReasoning) {
     const lines = [
@@ -478,6 +536,20 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     ].filter(Boolean);
     msg(best ? best.iteration : MAX_ITERATIONS, "Judge", "verdict", lines.join("\n\n"));
   }
+  tracker.endPhase("judge_framing", judge.issueFraming ? "Framed via LLM" : "Deterministic framing");
+
+  // Arbiter routing phase
+  tracker.startPhase("arbiter_routing", "Arbiter computing EV & routing policy", "Arbiter", 0);
+  msg(
+    best ? best.iteration : 1,
+    "Arbiter",
+    "verdict",
+    `Verdict ${finalVerdict} → action ${finalAction}. Awaiting human approval; nothing executes before approval.`,
+  );
+  tracker.endPhase("arbiter_routing", `${finalVerdict} → ${finalAction}`);
+
+  // Complete phase tracking
+  const completedPhases = tracker.finishRun();
 
   const run: SwarmRun = {
     id: runId,
@@ -493,6 +565,7 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     created_at: new Date().toISOString(),
     issue_framing: judge.issueFraming,
     verdict_reasoning: judge.verdictReasoning,
+    phases: completedPhases,
   };
   return run;
 }

@@ -106,6 +106,7 @@ export interface SwarmRun {
   created_at: string;
   issue_framing?: string;
   verdict_reasoning?: string;
+  phases?: SwarmPhaseItem[];
 }
 
 export interface Approval {
@@ -128,4 +129,30 @@ export interface ExecutionRecord {
   idempotency_key: string;
   follow_up_detail_status: string | null;
   note: string;
+}
+
+export type PhaseStatus = "pending" | "current" | "done";
+
+export interface SwarmPhaseItem {
+  key: string;
+  label: string;
+  actor: string;
+  iteration: number;
+  status: PhaseStatus;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  summary_note?: string;
+  messages: DebateMessage[];
+}
+
+export interface SwarmProgress {
+  run_id: string;
+  dispute_id: string;
+  status: "RUNNING" | "DONE";
+  started_at: string;
+  elapsed_ms: number;
+  current_phase_key: string | null;
+  current_phase_label: string;
+  phases: SwarmPhaseItem[];
 }

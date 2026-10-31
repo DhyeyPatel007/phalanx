@@ -11,6 +11,8 @@ import {
 import type {
   Dispute,
   EvidenceArtifact,
+  SwarmPhaseItem,
+  SwarmProgress,
   SwarmRun,
   Verdict,
 } from "@/lib/types";
@@ -94,6 +96,11 @@ export default function Home() {
   const [filter, setFilter] = useState("");
   const gridRef = useRef<AgGridReact<Row> | null>(null);
 
+  // Live Swarm Phase Tracker state
+  const [liveProgress, setLiveProgress] = useState<SwarmProgress | null>(null);
+  const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -128,8 +135,63 @@ export default function Home() {
     const res = await fetch(`/api/disputes/${id}`);
     const body = await res.json();
     setDetail(body);
-    if (body.run) setRuns((r) => ({ ...r, [id]: body.run }));
+    if (body.run) {
+      setRuns((r) => ({ ...r, [id]: body.run }));
+    }
+
+    try {
+      const statusRes = await fetch(`/api/disputes/${id}/run-status`);
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (statusData.progress) {
+          setLiveProgress(statusData.progress);
+        } else if (body.run?.phases) {
+          setLiveProgress({
+            run_id: body.run.id,
+            dispute_id: id,
+            status: "DONE",
+            started_at: body.run.created_at,
+            elapsed_ms: body.run.duration_ms,
+            current_phase_key: null,
+            current_phase_label: "Done",
+            phases: body.run.phases,
+          });
+        } else {
+          setLiveProgress(null);
+        }
+      }
+    } catch {
+      // ignore status fetch error
+    }
   }, []);
+
+  // Poll run-status while a swarm run is in flight on the selected dispute
+  useEffect(() => {
+    if (!loading || !selectedId) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/disputes/${selectedId}/run-status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.progress) {
+            setLiveProgress(data.progress);
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 400);
+
+    const tickInterval = setInterval(() => {
+      setNowTick(Date.now());
+    }, 100);
+
+    return () => {
+      clearInterval(pollInterval);
+      clearInterval(tickInterval);
+    };
+  }, [loading, selectedId]);
 
   const seedDemo = async () => {
     const res = await fetch("/api/demo/seed", { method: "POST" });
@@ -149,6 +211,26 @@ export default function Home() {
       setRuns((r) => ({ ...r, [id]: body.run }));
       await loadDetail(id);
       await refresh();
+
+      // Final progress refresh to lock in DONE status and auto-expand rejected phases
+      try {
+        const statusRes = await fetch(`/api/disputes/${id}/run-status`);
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          if (statusData.progress) {
+            setLiveProgress(statusData.progress);
+            const autoExp: Record<string, boolean> = {};
+            for (const p of statusData.progress.phases) {
+              if (p.summary_note && p.summary_note.includes("REJECTED")) {
+                autoExp[p.key] = true;
+              }
+            }
+            setExpandedPhases((prev) => ({ ...prev, ...autoExp }));
+          }
+        }
+      } catch {
+        // ignore
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -270,6 +352,22 @@ export default function Home() {
   const isExecuteAllowed = Boolean(
     detail?.approval && detail?.dispute.allowed_actions.includes(detail.approval.action),
   );
+
+  // Derived progress values for UI
+  const displayedPhases: SwarmPhaseItem[] =
+    liveProgress?.phases ?? (run?.phases ?? []);
+  const isRunning = liveProgress?.status === "RUNNING";
+  const donePhasesCount = displayedPhases.filter((p) => p.status === "done").length;
+  const progressPct =
+    displayedPhases.length > 0
+      ? Math.round((donePhasesCount / displayedPhases.length) * 100)
+      : 0;
+  const totalElapsedMs = isRunning
+    ? Math.max(
+        0,
+        liveProgress?.started_at ? nowTick - Date.parse(liveProgress.started_at) : 0,
+      )
+    : (run?.duration_ms ?? liveProgress?.elapsed_ms ?? 0);
 
   return (
     <div className="app-shell">
@@ -658,6 +756,128 @@ export default function Home() {
                   Download PDF Dossier ↗
                 </a>
               </div>
+
+              {/* Live Swarm Phase Tracker / Timeline */}
+              {displayedPhases.length > 0 && (
+                <section className="phase-tracker-card" aria-label="Swarm Execution Timeline">
+                  <div className="phase-tracker-header">
+                    <div className="phase-tracker-top">
+                      <div className="phase-live-title">
+                        <span
+                          className="brand-dot"
+                          style={{
+                            background: isRunning ? "var(--brand-green)" : "#71717A",
+                            boxShadow: isRunning ? "0 0 8px var(--brand-green)" : "none",
+                          }}
+                        />
+                        <span>
+                          {isRunning
+                            ? liveProgress?.current_phase_label || "Swarm running…"
+                            : "Swarm execution complete"}
+                        </span>
+                      </div>
+                      <div className="phase-elapsed">
+                        {isRunning
+                          ? `${(totalElapsedMs / 1000).toFixed(1)}s live`
+                          : `${totalElapsedMs} ms`}
+                      </div>
+                    </div>
+                    <div className="phase-progress-wrap">
+                      <div className="phase-progress-track">
+                        <div
+                          className={`phase-progress-fill ${isRunning ? "running" : ""}`}
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <span className="phase-progress-count">
+                        {donePhasesCount} of {displayedPhases.length} phases
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="phase-list">
+                    {displayedPhases.map((phase) => {
+                      const isDone = phase.status === "done";
+                      const isCurrent = phase.status === "current";
+                      const isPending = phase.status === "pending";
+                      const isExpanded = Boolean(expandedPhases[phase.key]);
+
+                      let durationDisplay = "Pending";
+                      if (isDone) {
+                        durationDisplay =
+                          phase.duration_ms !== null ? `${phase.duration_ms} ms` : "0 ms";
+                      } else if (isCurrent && phase.started_at) {
+                        const elapsedSec = Math.max(
+                          0,
+                          (nowTick - Date.parse(phase.started_at)) / 1000,
+                        );
+                        durationDisplay = `${elapsedSec.toFixed(1)}s live`;
+                      }
+
+                      const toggleExpand = () => {
+                        if (isPending) return;
+                        setExpandedPhases((prev) => ({
+                          ...prev,
+                          [phase.key]: !prev[phase.key],
+                        }));
+                      };
+
+                      return (
+                        <div key={phase.key} className={`phase-item ${phase.status}`}>
+                          <button
+                            type="button"
+                            className="phase-row"
+                            onClick={toggleExpand}
+                            aria-expanded={isExpanded}
+                          >
+                            <div className="phase-left">
+                              <span className={`phase-icon ${phase.status}`}>
+                                {isDone ? "✓" : isCurrent ? "" : "○"}
+                              </span>
+                              <div className="phase-label-group">
+                                <span className="phase-label">{phase.label}</span>
+                                <span className="phase-submeta">
+                                  [{phase.actor}]
+                                  {phase.summary_note ? ` · ${phase.summary_note}` : ""}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="phase-right">
+                              <span className={`phase-duration ${isCurrent ? "live" : ""}`}>
+                                {durationDisplay}
+                              </span>
+                              {!isPending && (
+                                <span className="phase-chevron">
+                                  {isExpanded ? "▴" : "▾"}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+
+                          {isExpanded && !isPending && (
+                            <div className="phase-transcript">
+                              {phase.messages.length === 0 ? (
+                                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                                  No transcript items emitted in this phase.
+                                </span>
+                              ) : (
+                                phase.messages.map((m, idx) => (
+                                  <div key={idx} className={`msg ${m.kind}`}>
+                                    <div className="actor">
+                                      {m.actor} · iter {m.iteration} · {m.kind}
+                                    </div>
+                                    <pre>{m.text}</pre>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               {/* Prominent Human Approval Gate — First-Class Trust Module */}
               {run && (

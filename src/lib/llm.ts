@@ -3,7 +3,9 @@
 // Supported: gemini (via OpenAI endpoint), openai, grok, deepseek, kimi, groq, nvidia, custom.
 // Hard invariants:
 // - draft() returns string | null; returns null immediately when no key is configured.
-// - Timeouts + exactly 1 retry on network/5xx errors.
+// - 60s default timeout for reasoning models (e.g. GLM-5.3-Flash, DeepSeek-R1).
+// - Up to 3 attempts on network/5xx errors (1s, 2s backoff); 4xx fails immediately.
+// - Strips <think>...</think> blocks from output before returning.
 // - Any failure returns null; NEVER throws into the swarm.
 // - Never log or leak API keys, tokens, or raw buyer contact details.
 
@@ -95,6 +97,15 @@ export function isLLMConfigured(): boolean {
   return Boolean(resolveKey(provider));
 }
 
+/**
+ * Strip <think>...</think> reasoning blocks from model output.
+ * Ensures reasoning model deliberation never leaks into rebuttals or Judge summaries.
+ */
+export function stripThinking(text: string): string {
+  if (!text) return "";
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
 export interface DraftOptions {
   model?: string;
   cheap?: boolean;
@@ -104,7 +115,7 @@ export interface DraftOptions {
 
 /**
  * Execute a chat completion draft against the configured provider.
- * Returns null if no key is configured or if the request fails (after 1 retry).
+ * Returns null if no key is configured or if the request fails (after 3 attempts with backoff).
  * Never throws.
  */
 export async function draft(
@@ -128,7 +139,9 @@ export async function draft(
 
   if (!model) return null;
 
-  const timeoutMs = opts.timeoutMs ?? 10_000;
+  // MiroFish learning: slow reasoning models (e.g. GLM-5.3-Flash, DeepSeek-R1) easily
+  // exceed 10s. Default is raised to 60s to prevent premature client timeouts.
+  const timeoutMs = opts.timeoutMs ?? 60_000;
   const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
   const messages: Array<{ role: string; content: string }> = [];
@@ -143,8 +156,10 @@ export async function draft(
     temperature: 0.2,
   });
 
-  // Attempt request with exactly 1 retry on network or 5xx error
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Up to 3 attempts total on network or 5xx errors; 4xx errors fail immediately.
+  // Backoff: 1s before attempt 2, 2s before attempt 3.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -164,18 +179,30 @@ export async function draft(
         const json = (await res.json()) as {
           choices?: Array<{ message?: { content?: string } }>;
         };
-        const text = json.choices?.[0]?.message?.content?.trim();
-        return text || null;
+        const rawText = json.choices?.[0]?.message?.content?.trim();
+        if (!rawText) return null;
+        // Strip <think>...</think> blocks from reasoning output
+        const cleaned = stripThinking(rawText);
+        return cleaned || null;
       }
 
-      // 5xx errors may be retried once; 4xx errors fail immediately
-      if (res.status >= 500 && attempt === 1) {
+      // 4xx errors (client/auth/validation errors) fail immediately without retry
+      if (res.status >= 400 && res.status < 500) {
+        return null;
+      }
+
+      // 5xx errors may be retried if attempts remain
+      if (attempt < MAX_ATTEMPTS) {
+        const backoffMs = attempt === 1 ? 1000 : 2000;
+        await new Promise((r) => setTimeout(r, backoffMs));
         continue;
       }
       return null;
     } catch {
       clearTimeout(timer);
-      if (attempt === 1) {
+      if (attempt < MAX_ATTEMPTS) {
+        const backoffMs = attempt === 1 ? 1000 : 2000;
+        await new Promise((r) => setTimeout(r, backoffMs));
         continue;
       }
       return null;

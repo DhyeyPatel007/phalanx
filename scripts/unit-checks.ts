@@ -6,14 +6,16 @@ import { PDFDocument } from "pdf-lib";
 import { artifactsFromDetail } from "../src/lib/ingest";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
 import { evDisplay, scoreDispute } from "../src/lib/scorer";
-import { draft, getProviderConfig, PROVIDER_REGISTRY } from "../src/lib/llm";
+import { draft, getProviderConfig, PROVIDER_REGISTRY, stripThinking } from "../src/lib/llm";
 import {
   aggregateJuryGaps,
   draftProsecutor,
   parseJudgeOutput,
   rebuttalFromTemplate,
+  runSwarm,
   validateDraftAmounts,
 } from "../src/lib/swarm";
+import { getDispute, getSwarmProgress, loadSeed } from "../src/lib/store";
 import type { Dispute, EvidenceArtifact, SwarmRun } from "../src/lib/types";
 
 let failures = 0;
@@ -292,10 +294,93 @@ VERDICT_REASONING: The evidence score of 85/100 fulfills tracking and post-deliv
   check("Judge parse returns undefined for missing reasoning", undefined, emptyParsed.verdictReasoning);
 }
 
+
+// ---- MiroFish learnings: thinking-block stripping ----
+{
+  const reasoningOutput = "<think>\nThinking about the merchant dispute...\nConsidering PayPal policies...\n</think>\nRebuttal v1 — Claim is contested on tracking proof.";
+  check(
+    "stripThinking removes <think>...</think> blocks",
+    "Rebuttal v1 — Claim is contested on tracking proof.",
+    stripThinking(reasoningOutput),
+  );
+
+  const multipleThinks = "<think>first thought</think>Part 1<think>second thought</think> Part 2";
+  check(
+    "stripThinking removes multiple <think> blocks",
+    "Part 1 Part 2",
+    stripThinking(multipleThinks),
+  );
+
+  const noThinking = "Plain text without any thinking tags.";
+  check(
+    "stripThinking leaves clean text unchanged",
+    "Plain text without any thinking tags.",
+    stripThinking(noThinking),
+  );
+
+  check("stripThinking handles empty string", "", stripThinking(""));
+}
+
+// ---- Live Swarm Phase Tracker & Seeded Dispute Integration ----
+async function swarmAndTrackerChecks(): Promise<void> {
+  loadSeed();
+
+  // Test Scenario A: PP-D-88412 (60 -> 85)
+  const disputeA = getDispute("PP-D-88412");
+  if (!disputeA) throw new Error("Seed dispute PP-D-88412 missing");
+  const runA = await runSwarm(disputeA);
+
+  check("Seeded A score progression achieves 85", 85, runA.score);
+  check("Seeded A verdict is CONTEST_HARD_PROOF", "CONTEST_HARD_PROOF", runA.verdict);
+  check("Seeded A took exactly 2 iterations (v1 rejected -> v2 accepted)", 2, runA.iterations.length);
+  check("Seeded A iteration 1 was rejected", false, runA.iterations[0].accepted);
+  check("Seeded A iteration 1 score was 60", 60, runA.iterations[0].score);
+  check("Seeded A iteration 2 was accepted", true, runA.iterations[1].accepted);
+  check("Seeded A iteration 2 score was 85", 85, runA.iterations[1].score);
+
+  // Check SwarmRun phases
+  check("runA carries phases array", true, Array.isArray(runA.phases));
+  const phasesA = runA.phases ?? [];
+  check("runA has hound_init phase", true, phasesA.some((p) => p.key === "hound_init"));
+  check("runA has prosecutor_v1 phase", true, phasesA.some((p) => p.key === "prosecutor_v1"));
+  check("runA has redteam_jury_v1 phase", true, phasesA.some((p) => p.key === "redteam_jury_v1"));
+  check("runA has dynamic hound_deep_v2 phase", true, phasesA.some((p) => p.key === "hound_deep_v2"));
+  check("runA has prosecutor_v2 phase", true, phasesA.some((p) => p.key === "prosecutor_v2"));
+  check("runA has redteam_jury_v2 phase", true, phasesA.some((p) => p.key === "redteam_jury_v2"));
+  check("runA has judge_framing phase", true, phasesA.some((p) => p.key === "judge_framing"));
+  check("runA has arbiter_routing phase", true, phasesA.some((p) => p.key === "arbiter_routing"));
+
+  // Check store progress for PP-D-88412
+  const progressA = getSwarmProgress("PP-D-88412");
+  check("Store progressA status is DONE", "DONE", progressA?.status);
+  const pPros1 = progressA?.phases.find((p) => p.key === "prosecutor_v1");
+  check("prosecutor_v1 is done in progress", "done", pPros1?.status);
+  check("prosecutor_v1 has non-null duration_ms", true, typeof pPros1?.duration_ms === "number");
+  const pPros2 = progressA?.phases.find((p) => p.key === "prosecutor_v2");
+  check("prosecutor_v2 is done in progress", "done", pPros2?.status);
+
+  // Test Scenario B: PP-D-88413 (Score 60 -> DE_ESCALATE_OFFER)
+  const disputeB = getDispute("PP-D-88413");
+  if (!disputeB) throw new Error("Seed dispute PP-D-88413 missing");
+  const runB = await runSwarm(disputeB);
+  check("Seeded B score is 60", 60, runB.score);
+  check("Seeded B verdict is DE_ESCALATE_OFFER", "DE_ESCALATE_OFFER", runB.verdict);
+  check("Seeded B took 1 iteration", 1, runB.iterations.length);
+
+  // Test Scenario C: PP-D-88414 (Score 0 -> CONCEDE_FAST_SETTLE)
+  const disputeC = getDispute("PP-D-88414");
+  if (!disputeC) throw new Error("Seed dispute PP-D-88414 missing");
+  const runC = await runSwarm(disputeC);
+  check("Seeded C score is 0", 0, runC.score);
+  check("Seeded C verdict is CONCEDE_FAST_SETTLE", "CONCEDE_FAST_SETTLE", runC.verdict);
+  check("Seeded C took 1 iteration", 1, runC.iterations.length);
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
   await draftNoKeyChecks();
   await prosecutorFallbackChecks();
+  await swarmAndTrackerChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }
