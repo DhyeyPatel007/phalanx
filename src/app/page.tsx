@@ -327,6 +327,7 @@ export default function Home() {
           ) : (
             <div className="grid-wrap ag-theme-quartz-dark">
               <AgGridReact
+                theme="legacy"
                 ref={gridRef}
                 rowData={rows}
                 columnDefs={columns}
