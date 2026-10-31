@@ -1,5 +1,6 @@
 node_modules/
 .next/
+test-results/
 .env.local
 .env*.local
 *.log

@@ -2,7 +2,7 @@
 // Runs against a FRESH production server (in-memory store, so the test
 // order matters: approvals/runs do not survive a restart).
 //   PHALANX_BASE_URL=http://localhost:3100 node scripts/negative-tests.mjs
-// Writes docs/negative-tests.md with expected vs actual + PASS/FAIL.
+// Writes test-results/negative-tests.md (local only, gitignored) with expected vs actual + PASS/FAIL.
 // Exits non-zero if any test fails. No live PayPal calls are made.
 
 import { execSync } from "node:child_process";
@@ -336,6 +336,7 @@ ${results.map((r) => `| ${r.name} | ${r.expected} | ${r.actual}${r.detail ? ` ($
 - Live Sandbox execution (provide-evidence / make-offer / accept-claim against PayPal) — deliberately refused in this run; needs his Sandbox accounts + webhook.
 - The live-check fill-in report (brief §10.6): dispute ID seen in Sandbox, PDF visible in the dispute, offer/accept reflected on re-fetch.
 `;
-fs.writeFileSync(path.join(ROOT, "docs", "negative-tests.md"), md);
-console.log(`\n${passed}/${results.length} passed. Report written to docs/negative-tests.md`);
+fs.mkdirSync(path.join(ROOT, "test-results"), { recursive: true });
+fs.writeFileSync(path.join(ROOT, "test-results", "negative-tests.md"), md);
+console.log(`\n${passed}/${results.length} passed. Report written to test-results/negative-tests.md`);
 process.exit(failures > 0 ? 1 : 0);

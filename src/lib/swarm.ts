@@ -1,7 +1,7 @@
 // Prosecutor / Red-Team adversarial loop — brief §5.
 // Deterministic first, LLM second. In this run the LLM is NOT called:
-// the Prosecutor drafts from a fixed template + artifacts only (see
-// prompts/rebuttal-template.md). If a model call were added later it would
+// the Prosecutor drafts from a fixed template + artifacts only (the
+// Prosecutor/Red-Team prompt text lives in the project files). If a model call were added later it would
 // draft wording only, never add facts, and the loop below is unchanged.
 // Max 3 adversarial iterations, then the loop stops and returns the best
 // draft with its gaps listed — never loops forever, never silently passes.
