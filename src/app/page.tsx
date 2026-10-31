@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
-import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import type { ColDef } from "ag-grid-community";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-quartz.css";
+import {
+  AllCommunityModule,
+  ModuleRegistry,
+  themeQuartz,
+  type ColDef,
+} from "ag-grid-community";
 import type {
   Dispute,
   EvidenceArtifact,
@@ -14,6 +16,23 @@ import type {
 } from "@/lib/types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+const supabaseGridTheme = themeQuartz.withParams({
+  backgroundColor: "#1C1C1C",
+  foregroundColor: "#EDEDED",
+  headerBackgroundColor: "#171717",
+  headerTextColor: "#A1A1AA",
+  borderColor: "#2E2E2E",
+  rowHoverColor: "#242424",
+  selectedRowBackgroundColor: "rgba(62, 207, 142, 0.12)",
+  accentColor: "#3ECF8E",
+  fontFamily: "var(--font-sans), Inter, system-ui, sans-serif",
+  fontSize: 13,
+  headerFontSize: 11,
+  headerFontWeight: 600,
+});
+
+type NavSection = "overview" | "disputes" | "runs" | "evidence" | "settings";
 
 interface Row {
   id: string;
@@ -40,8 +59,14 @@ interface Telemetry {
 interface Detail {
   dispute: Dispute;
   artifacts: EvidenceArtifact[];
-  run: SwarmRun | null;
-  approval: { id: string; action: string; approved_by: string; approved_at: string; offer_amount?: { currency_code: string; value: string } } | null;
+  run: (SwarmRun & { issue_framing?: string | null; verdict_reasoning?: string | null }) | null;
+  approval: {
+    id: string;
+    action: string;
+    approved_by: string;
+    approved_at: string;
+    offer_amount?: { currency_code: string; value: string };
+  } | null;
   execution: { paypal_status: string; note: string } | null;
 }
 
@@ -57,6 +82,7 @@ function verdictBadge(v: Verdict | null) {
 }
 
 export default function Home() {
+  const [activeNav, setActiveNav] = useState<NavSection>("overview");
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [runs, setRuns] = useState<Record<string, SwarmRun>>({});
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
@@ -76,10 +102,16 @@ export default function Home() {
       const body = await res.json();
       setDisputes(body.disputes ?? []);
       setTelemetry(body.telemetry ?? null);
-      // Hydrate runs from the server (finding #7): without this, a
-      // browser reload resets every grid row to NOT RUN until clicked.
-      if (body.latest_runs) setRuns(body.latest_runs as Record<string, SwarmRun>);
-      if (body.liveError) setNotice(`Live PayPal list failed (seeded demo still works): ${body.liveError}`);
+      if (body.latest_runs && typeof body.latest_runs === "object") {
+        setRuns(body.latest_runs as Record<string, SwarmRun>);
+      } else if (body.runs && typeof body.runs === "object") {
+        setRuns(body.runs as Record<string, SwarmRun>);
+      }
+      if (body.liveError) {
+        setNotice(
+          `Live PayPal list failed (seeded demo still works): ${body.liveError}`,
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -102,8 +134,8 @@ export default function Home() {
   const seedDemo = async () => {
     const res = await fetch("/api/demo/seed", { method: "POST" });
     const body = await res.json();
+    setDisputes(body.disputes ?? []);
     setNotice(`Seeded demo loaded: ${body.seeded} scenarios (SIMULATED).`);
-    // Refresh ledger + telemetry from the server (finding #7).
     await refresh();
   };
 
@@ -116,9 +148,6 @@ export default function Home() {
       if (!res.ok) throw new Error(body.error ?? "swarm run failed");
       setRuns((r) => ({ ...r, [id]: body.run }));
       await loadDetail(id);
-      // Refresh ledger + telemetry from the server (finding #7): without
-      // this, runs_completed / capital / fees stay stale until a manual
-      // refresh.
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -138,21 +167,25 @@ export default function Home() {
       setError(body.error ?? "approve failed");
       return;
     }
-    setNotice(`Approved ${action} for ${id} (approver: demo merchant). Execute is still gated — see below.`);
+    setNotice(
+      `Approved ${action} for ${id} (approver: demo merchant). Execute is still gated — see below.`,
+    );
     await loadDetail(id);
+    await refresh();
   };
 
   const execute = async (id: string) => {
     const res = await fetch(`/api/disputes/${id}/execute`, { method: "POST" });
     const body = await res.json();
     if (!res.ok) {
-      // Expected in this run: refusals are the correct behaviour (see log).
       setNotice(`Execute refused (${body.error}): ${body.detail ?? ""}`);
       await loadDetail(id);
+      await refresh();
       return;
     }
     setNotice("Executed.");
     await loadDetail(id);
+    await refresh();
   };
 
   const rows: Row[] = useMemo(
@@ -186,10 +219,10 @@ export default function Home() {
   const feesAvoided = telemetry ? telemetry.fees_avoided_usd : 0;
 
   const columns: ColDef<Row>[] = [
-    { field: "id", headerName: "Dispute ID", flex: 1.2, sortable: true, filter: true },
+    { field: "id", headerName: "Dispute ID", flex: 1.1, sortable: true, filter: true },
     { field: "reason", headerName: "Reason Code", flex: 2, sortable: true, filter: true },
-    { field: "amount", headerName: "Amount", flex: 0.8, sortable: true },
-    { field: "iterations", headerName: "Iterations", flex: 0.6, sortable: true },
+    { field: "amount", headerName: "Amount", flex: 0.9, sortable: true },
+    { field: "iterations", headerName: "Iterations", flex: 0.7, sortable: true },
     {
       field: "score",
       headerName: "Checklist Score",
@@ -197,11 +230,14 @@ export default function Home() {
       sortable: true,
       cellRenderer: (p: { value: number | null }) =>
         p.value === null ? (
-          <span style={{ color: "#8b98a5" }}>—</span>
+          <span style={{ color: "#71717A" }}>—</span>
         ) : (
           <span className="scorebar">
             <span className="bar">
-              <span className="fill" style={{ width: `${p.value}%`, display: "block" }} />
+              <span
+                className="fill"
+                style={{ width: `${p.value}%`, display: "block" }}
+              />
             </span>
             {p.value}/100
           </span>
@@ -214,7 +250,7 @@ export default function Home() {
       sortable: true,
       cellRenderer: (p: { value: Verdict | null }) => verdictBadge(p.value),
     },
-    { field: "status", headerName: "PayPal Status", flex: 1.2, sortable: true, filter: true },
+    { field: "status", headerName: "PayPal Status", flex: 1.3, sortable: true, filter: true },
     { field: "source", headerName: "Source", flex: 1.2, sortable: true, filter: true },
   ];
 
@@ -227,348 +263,648 @@ export default function Home() {
         : run?.verdict === "CONCEDE_FAST_SETTLE"
           ? "accept-claim"
           : null;
-  // UI gates (finding #7): the buttons must respect allowed_actions, as
-  // the footnote below claims — the server already gates, this keeps the
-  // UI honest instead of offering an action that will refuse.
-  const actionAllowed = Boolean(
+
+  const isApproveAllowed = Boolean(
     actionForVerdict && detail?.dispute.allowed_actions.includes(actionForVerdict),
   );
-  const approvalActionAllowed = Boolean(
-    detail?.approval && detail.dispute.allowed_actions.includes(detail.approval.action),
+  const isExecuteAllowed = Boolean(
+    detail?.approval && detail?.dispute.allowed_actions.includes(detail.approval.action),
   );
 
   return (
-    <div>
-      <header className="topbar">
-        <h1>
-          PHALANX<span> // </span>DISPUTE DEFENSE
-        </h1>
-        <span className="sub">
-          Adversarial swarm · PayPal Sandbox · human approves every action
-        </span>
-        <span style={{ flex: 1 }} />
-        <button onClick={seedDemo}>Load seeded demo</button>
-        <button onClick={refresh} disabled={loading}>
-          Refresh ledger
-        </button>
-      </header>
-
-      <div className="banner">
-        <b>SIMULATED DATA</b> — seeded disputes are demo data, not real
-        buyers or transactions. Checklist scores are an internal heuristic,
-        NOT a win probability. Sandbox only; no live execution in this run.
-      </div>
-
-      <section className="telemetry" aria-label="Telemetry">
-        <div className="tele">
-          <div className="label">Total disputed volume</div>
-          <div className="value">${totalVolume.toFixed(2)}</div>
-          <div className="note">Sum of loaded dispute amounts</div>
-        </div>
-        <div className="tele">
-          <div className="label">Capital saved by swarm</div>
-          <div className="value">${capitalSaved.toFixed(2)}</div>
-          <div className="note">
-            Amount retained on contested disputes where evidence was accepted
-            in Sandbox; $0 until a Sandbox execution succeeds
+    <div className="app-shell">
+      {/* Left Supabase-style Sidebar */}
+      <aside className="sidebar" aria-label="Sidebar navigation">
+        <div className="brand-header">
+          <div className="brand-title">
+            <span className="brand-dot" /> PHALANX
           </div>
+          <span className="env-pill">Sandbox</span>
         </div>
-        <div className="tele">
-          <div className="label">Dispute fees avoided</div>
-          <div className="value">${feesAvoided.toFixed(2)}</div>
-          <div className="note">
-            Basis: US Standard Dispute Fee $15 (Oct 1, 2026 schedule); $0
-            until a Sandbox execution succeeds
-          </div>
-        </div>
-        <div className="tele">
-          <div className="label">Avg swarm resolution time</div>
-          <div className="value">{avgRunMs === null ? "—" : `${avgRunMs} ms`}</div>
-          <div className="note">Demo run time only — never compared to an unsourced manual figure</div>
-        </div>
-      </section>
 
-      {notice && (
-        <div style={{ padding: "8px 16px", background: "#0b3d24", color: "#b7f5d0", fontSize: 13 }}>
-          {notice}
-        </div>
-      )}
-      {error && (
-        <div className="error" style={{ padding: "8px 16px" }}>
-          Error: {error}
-        </div>
-      )}
-
-      <div className="main">
-        <section className="ledger">
-          <h2>Dispute ledger — AG Grid Community</h2>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input
-              type="search"
-              aria-label="Filter ledger"
-              placeholder="Filter: dispute ID, reason, status…"
-              value={filter}
-              onChange={(e) => {
-                setFilter(e.target.value);
-                gridRef.current?.api.setGridOption("quickFilterText", e.target.value);
-              }}
-              style={{ flex: 1, padding: "6px 10px", background: "#0d1117", color: "#e6edf3", border: "1px solid #30363d", borderRadius: 6 }}
-            />
-          </div>
-          {disputes.length === 0 ? (
-            <div className="empty">
-              No disputes loaded.
-              <div className="actions" style={{ justifyContent: "center" }}>
-                <button className="primary" onClick={seedDemo}>
-                  Load seeded demo
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid-wrap ag-theme-quartz-dark">
-              <AgGridReact
-                theme="legacy"
-                ref={gridRef}
-                rowData={rows}
-                columnDefs={columns}
-                defaultColDef={{ resizable: true }}
-                rowSelection="single"
-                onRowClicked={(e) => e.data && loadDetail(e.data.id)}
-                pagination={true}
-                paginationPageSize={10}
-              />
-            </div>
-          )}
-          <p className="footnote">
-            Score = checklist score 0–100 (tracking DELIVERED 30 + delivery
-            verifiable 15 + signature 15 + merchant log 25 + invoice/terms
-            15). Routing policy: ≥75 CONTEST_HARD_PROOF · 35–74
-            DE_ESCALATE_OFFER · &lt;35 CONCEDE_FAST_SETTLE. Click a row to
-            open the debate inspector.
-          </p>
-        </section>
-
-        {detail && selectedId && (
-          <aside className="drawer" aria-label="Adversarial debate inspector">
-            <button className="close" onClick={() => { setDetail(null); setSelectedId(null); }}>
-              Close ✕
+        <div className="nav-group-label">Workbench</div>
+        <ul className="nav-list">
+          <li>
+            <button
+              className={`nav-btn ${activeNav === "overview" ? "active" : ""}`}
+              onClick={() => setActiveNav("overview")}
+            >
+              <span>Overview</span>
+              <span className="nav-count">{disputes.length}</span>
             </button>
-            <h2>{detail.dispute.id}</h2>
-            <p>
-              {detail.dispute.reason} · ${detail.dispute.amount.value}{" "}
-              {detail.dispute.amount.currency_code} ·{" "}
-              {detail.dispute.dispute_life_cycle_stage} /{" "}
-              {detail.dispute.status}
-            </p>
-            <p>
-              {detail.dispute.source === "seeded" ? (
-                <span className="badge sim">SEEDED — SIMULATED</span>
+          </li>
+          <li>
+            <button
+              className={`nav-btn ${activeNav === "disputes" ? "active" : ""}`}
+              onClick={() => setActiveNav("disputes")}
+            >
+              <span>Disputes</span>
+              <span className="nav-count">{disputes.length}</span>
+            </button>
+          </li>
+          <li>
+            <button
+              className={`nav-btn ${activeNav === "runs" ? "active" : ""}`}
+              onClick={() => setActiveNav("runs")}
+            >
+              <span>Swarm Runs</span>
+              <span className="nav-count">{Object.keys(runs).length}</span>
+            </button>
+          </li>
+          <li>
+            <button
+              className={`nav-btn ${activeNav === "evidence" ? "active" : ""}`}
+              onClick={() => setActiveNav("evidence")}
+            >
+              <span>Evidence Dossiers</span>
+              <span className="nav-count">{disputes.length}</span>
+            </button>
+          </li>
+          <li>
+            <button
+              className={`nav-btn ${activeNav === "settings" ? "active" : ""}`}
+              onClick={() => setActiveNav("settings")}
+            >
+              <span>Settings</span>
+            </button>
+          </li>
+        </ul>
+
+        <div className="sidebar-footer">
+          <a
+            className="sidebar-link"
+            href="https://github.com/DhyeyPatel007/phalanx"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub Repository ↗
+          </a>
+          <a
+            className="sidebar-link"
+            href="https://developer.paypal.com/api/customer-disputes/v1"
+            target="_blank"
+            rel="noreferrer"
+          >
+            PayPal Disputes v1 Docs ↗
+          </a>
+        </div>
+      </aside>
+
+      {/* Main Workspace */}
+      <div className="workspace">
+        <header className="topbar">
+          <div className="topbar-left">
+            <h1>
+              {activeNav === "overview"
+                ? "Overview"
+                : activeNav === "disputes"
+                  ? "Disputes Ledger"
+                  : activeNav === "runs"
+                    ? "Swarm Deliberation Runs"
+                    : activeNav === "evidence"
+                      ? "Evidence Dossiers (PDF)"
+                      : "Environment & Gate Settings"}
+            </h1>
+            <span className="sub">
+              Adversarial swarm · PayPal Sandbox · human approves every action
+            </span>
+          </div>
+          <div className="topbar-actions">
+            <button onClick={refresh} disabled={loading}>
+              Refresh ledger
+            </button>
+            <button className="primary" onClick={seedDemo}>
+              Load seeded demo
+            </button>
+          </div>
+        </header>
+
+        <div className="content-wrap">
+          {/* Mandatory Honesty Callout — Always Visible */}
+          <div className="callout simulated">
+            <span>
+              <b>SIMULATED DATA</b> — seeded disputes are demo data, not real
+              buyers or transactions. Checklist scores are an internal
+              heuristic, NOT a win probability. Sandbox only; no live execution
+              in this run.
+            </span>
+          </div>
+
+          {notice && <div className="callout notice">{notice}</div>}
+          {error && <div className="callout error">Error: {error}</div>}
+
+          {/* Telemetry Stat Cards */}
+          {(activeNav === "overview" || activeNav === "runs") && (
+            <section className="telemetry" aria-label="Telemetry">
+              <div className="tele">
+                <div className="label">Total disputed volume</div>
+                <div className="value">${totalVolume.toFixed(2)}</div>
+                <div className="note">Sum of loaded dispute amounts</div>
+              </div>
+              <div className="tele">
+                <div className="label">Capital saved by swarm</div>
+                <div className="value">${capitalSaved.toFixed(2)}</div>
+                <div className="note">
+                  Amount retained on contested disputes where evidence was
+                  accepted in Sandbox; $0 until a Sandbox execution succeeds
+                </div>
+              </div>
+              <div className="tele">
+                <div className="label">Dispute fees avoided</div>
+                <div className="value">${feesAvoided.toFixed(2)}</div>
+                <div className="note">
+                  Basis: US Standard Dispute Fee $15 (Oct 1, 2026 schedule); $0
+                  until a Sandbox execution succeeds
+                </div>
+              </div>
+              <div className="tele">
+                <div className="label">Avg swarm resolution time</div>
+                <div className="value">
+                  {avgRunMs === null ? "—" : `${avgRunMs} ms`}
+                </div>
+                <div className="note">
+                  Demo run time only — never compared to an unsourced manual figure
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Swarm Runs Dedicated Summary View */}
+          {activeNav === "runs" && (
+            <section className="ledger-card" style={{ padding: 16 }}>
+              <h2 style={{ marginTop: 0, fontSize: 14 }}>
+                Swarm Deliberation Runs ({Object.keys(runs).length})
+              </h2>
+              <p className="footnote" style={{ marginBottom: 12 }}>
+                Each run executes the 4-agent chain: Hound → Prosecutor → Red-Team Jury → Arbiter.
+              </p>
+              {Object.keys(runs).length === 0 ? (
+                <div className="empty">No swarm runs executed yet. Select a dispute from the ledger to run the swarm.</div>
               ) : (
-                <span className="badge na">SANDBOX</span>
-              )}{" "}
-              {run ? verdictBadge(run.verdict) : <span className="badge na">NOT RUN</span>}
-            </p>
-
-            <h3>Evidence artifacts</h3>
-            {detail.artifacts.length === 0 ? (
-              <p className="gaplist">No artifacts yet.</p>
-            ) : (
-              <dl className="kv">
-                {detail.artifacts.map((a) => (
-                  <span key={a.id} style={{ display: "contents" }}>
-                    <dt>
-                      [{a.kind}]{a.simulated ? " (SIM)" : ""}
-                    </dt>
-                    <dd>{a.summary}</dd>
-                  </span>
-                ))}
-              </dl>
-            )}
-
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={() => runSwarm(detail.dispute.id)}
-                disabled={loading}
-              >
-                Run swarm
-              </button>
-              <button
-                onClick={async () => {
-                  const res = await fetch("/api/demo/replay-webhook", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ dispute_id: detail.dispute.id }),
-                  });
-                  const body = await res.json();
-                  setNotice(`Replayed stored CUSTOMER.DISPUTE.CREATED for ${detail.dispute.id} (demo only, no live webhook).`);
-                  void body;
-                }}
-              >
-                Replay webhook
-              </button>
-            </div>
-
-            {run && (
-              <>
-                <h3>Score — before / after</h3>
-                {run.iterations.map((it) => (
-                  <p key={it.iteration} style={{ margin: "4px 0" }}>
-                    {it.draft_version}: {it.score_before} →{" "}
-                    <b>{it.score}/100</b> · {it.verdict} ·{" "}
-                    {it.accepted ? "ACCEPTED" : "REJECTED"}
-                  </p>
-                ))}
-                <p>
-                  Final: <b>{run.score}/100</b> — checklist score, not a win
-                  probability. Run time: {run.duration_ms} ms.
-                </p>
-
-                                {run.issue_framing && (
-                  <div style={{ margin: "12px 0", padding: "10px 14px", background: "#161b22", borderLeft: "3px solid #58a6ff", borderRadius: 4 }}>
-                    <div style={{ fontSize: 11, textTransform: "uppercase", color: "#8b949e", fontWeight: 600, marginBottom: 4 }}>
-                      Judge // Issue Framing & Reasoning
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {Object.entries(runs).map(([disputeId, r]) => (
+                    <div
+                      key={disputeId}
+                      style={{
+                        padding: 12,
+                        background: "var(--bg-canvas)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                      }}
+                      onClick={() => loadDetail(disputeId)}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontFamily: "var(--font-mono), monospace", fontWeight: 600 }}>{disputeId}</span>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          {verdictBadge(r.verdict)}
+                          <span style={{ fontFamily: "var(--font-mono), monospace", fontSize: 12 }}>{r.score}/100</span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
+                        {r.iterations.length} iterations · {r.duration_ms} ms · {r.gaps.length} gaps identified
+                      </div>
                     </div>
-                    <p style={{ margin: 0, fontSize: 13, color: "#e6edf3" }}>
-                      <b>Issue:</b> {run.issue_framing}
-                    </p>
-                    {run.verdict_reasoning && (
-                      <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8b949e" }}>
-                        <b>Reasoning:</b> {run.verdict_reasoning}
-                      </p>
-                    )}
-                  </div>
-                )}
-                <h3>Named gaps</h3>
-                {run.gaps.length === 0 ? (
-                  <p>No gaps — every checklist item has an artifact.</p>
-                ) : (
-                  <ul className="gaplist">
-                    {run.gaps.map((g) => (
-                      <li key={g}>{g}</li>
-                    ))}
-                  </ul>
-                )}
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
-                <h3>Adversarial debate transcript</h3>
-                {run.messages.map((m, i) => (
-                  <div key={i} className={`msg ${m.kind}`}>
-                    <div className="actor">
-                      {m.actor} · iter {m.iteration} · {m.kind}
-                    </div>
-                    <pre>{m.text}</pre>
-                  </div>
-                ))}
-
-                {run.ev_display && (
-                  <>
-                    <h3>Illustrative EV — not a PayPal outcome prediction</h3>
-                    <dl className="kv">
-                      <dt>EV contest</dt>
-                      <dd>${run.ev_display.ev_contest.toFixed(2)}</dd>
-                      <dt>Concede cost</dt>
-                      <dd>${run.ev_display.concede_cost.toFixed(2)}</dd>
-                      <dt>Offer cost (40%)</dt>
-                      <dd>${run.ev_display.offer_cost.toFixed(2)}</dd>
-                      <dt>Fee basis</dt>
-                      <dd>{run.ev_display.fee_basis}</dd>
-                    </dl>
-                  </>
-                )}
-
-                <details>
-                  <summary>PayPal says I can… (allowed actions)</summary>
-                  <pre>
-                    {JSON.stringify(detail.dispute.allowed_actions, null, 2)}
-                    {detail.dispute.source === "seeded"
-                      ? "\n(SIMULATED list for seeded disputes — live gating applies to Sandbox rows.)"
-                      : ""}
-                  </pre>
-                </details>
-
-                <h3>Evidence dossier (PDF)</h3>
-                <p>
+          {/* Evidence Quick-Access View */}
+          {activeNav === "evidence" && (
+            <section className="ledger-card" style={{ padding: 16 }}>
+              <h2 style={{ marginTop: 0, fontSize: 14 }}>
+                5-Page PDF Evidence Dossiers (pdf-lib · SHA-256 manifest)
+              </h2>
+              <p className="footnote" style={{ marginBottom: 12 }}>
+                Every seeded dispute carries a SIMULATED watermark on all 5 pages. Pre-swarm downloads reflect only Pass-1 fast sources.
+              </p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {disputes.map((d) => (
                   <a
-                    href={`/api/disputes/${detail.dispute.id}/evidence.pdf`}
+                    key={d.id}
+                    className="pdf-link"
+                    href={`/api/disputes/${d.id}/evidence.pdf`}
                     target="_blank"
                     rel="noreferrer"
+                    style={{
+                      padding: "8px 12px",
+                      border: "1px solid var(--border-default)",
+                      borderRadius: 6,
+                      background: "var(--bg-canvas)",
+                    }}
                   >
-                    Download evidence dossier (PDF)
-                  </a>{" "}
-                  <span className="footnote">
-                    — preview before approval; SIMULATED watermark on seeded
-                    disputes.
-                  </span>
-                </p>
+                    Download {d.id} ({d.reason} · ${d.amount.value}) ↗
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
 
-                <h3>Human approval gate</h3>
-                {detail.approval ? (
-                  <p>
-                    Approved: <b>{detail.approval.action}</b>
-                    {detail.approval.action === "make-offer" && detail.approval.offer_amount && (
-                      <>
-                        {" "}— offer{" "}
-                        <b>
-                          ${detail.approval.offer_amount.value}{" "}
-                          {detail.approval.offer_amount.currency_code}
-                        </b>{" "}
-                        (REFUND, buyer keeps the item)
-                      </>
-                    )}{" "}
-                    by {detail.approval.approved_by ?? "demo merchant"} at{" "}
-                    {detail.approval.approved_at}
-                  </p>
-                ) : (
-                  <p>No approval yet. Nothing executes before approval.</p>
-                )}
-                {run?.verdict === "CONCEDE_FAST_SETTLE" && (
-                  <p className="gaplist">
-                    Manual next step (not automated): file a carrier insurance
-                    claim for the lost package — PHALANX does not file claims
-                    automatically.
-                  </p>
-                )}
-                {detail.execution && (
-                  <p className="gaplist">
-                    Last execution attempt: {detail.execution.paypal_status} —{" "}
-                    {detail.execution.note}
-                  </p>
-                )}
-                <div className="actions">
-                  <button
-                    onClick={() => actionForVerdict && approve(detail.dispute.id, actionForVerdict)}
-                    disabled={!actionForVerdict || !actionAllowed || loading}
-                    title={!actionForVerdict ? undefined : actionAllowed ? undefined : `${actionForVerdict} is not in this dispute's live allowed actions`}
-                  >
-                    Approve {actionForVerdict ?? "—"}
-                  </button>
-                  <button
-                    className="danger"
-                    onClick={() => execute(detail.dispute.id)}
-                    disabled={!detail.approval || !approvalActionAllowed || loading}
-                    title={detail.approval && !approvalActionAllowed ? `${detail.approval.action} is no longer in this dispute's live allowed actions` : undefined}
-                  >
-                    Execute (gated)
-                  </button>
+          {/* Settings Read-Only Inspection View */}
+          {activeNav === "settings" && (
+            <section className="ledger-card" style={{ padding: 16 }}>
+              <h2 style={{ marginTop: 0, fontSize: 14 }}>
+                Architecture &amp; Safety Gates
+              </h2>
+              <dl className="kv">
+                <dt>PayPal Target</dt>
+                <dd>Sandbox only (api-m.sandbox.paypal.com) — no real money</dd>
+                <dt>Human Gate</dt>
+                <dd>Mandatory before provide-evidence, make-offer, or accept-claim</dd>
+                <dt>Scoring Engine</dt>
+                <dd>Deterministic 0–100 checklist rubric (never a win probability)</dd>
+                <dt>LLM Layer</dt>
+                <dd>Wording + 3-juror deliberation only; zero-key template fallback</dd>
+              </dl>
+            </section>
+          )}
+
+          {/* Main AG Grid Dispute Ledger */}
+          {(activeNav === "overview" || activeNav === "disputes") && (
+            <section className="ledger-card">
+              <div className="ledger-toolbar">
+                <h2>Dispute ledger — AG Grid Community</h2>
+                <input
+                  type="search"
+                  className="search-input"
+                  aria-label="Filter ledger"
+                  placeholder="Filter: dispute ID, reason, status…"
+                  value={filter}
+                  onChange={(e) => {
+                    setFilter(e.target.value);
+                    gridRef.current?.api.setGridOption(
+                      "quickFilterText",
+                      e.target.value,
+                    );
+                  }}
+                />
+              </div>
+
+              {disputes.length === 0 ? (
+                <div className="empty">
+                  No disputes loaded.
+                  <div className="actions" style={{ justifyContent: "center", marginTop: 10 }}>
+                    <button className="primary" onClick={seedDemo}>
+                      Load seeded demo
+                    </button>
+                  </div>
                 </div>
-                {actionForVerdict && !actionAllowed && (
-                  <p className="gaplist">
-                    Verdict action {actionForVerdict} is not allowed on this
-                    dispute (live allowed:{" "}
-                    {detail.dispute.allowed_actions.join(", ") || "none"}).
-                    Approve is disabled — the server would refuse it.
-                  </p>
-                )}
-                <p className="footnote">
-                  Execute is disabled until Approve, and until the action is
-                  live-allowed. In this run live execution is not enabled —
-                  Execute records a refusal (negative test, logged).
-                </p>
-              </>
-            )}
-          </aside>
-        )}
+              ) : (
+                <div className="grid-wrap">
+                  <AgGridReact
+                    ref={gridRef}
+                    theme={supabaseGridTheme}
+                    rowData={rows}
+                    columnDefs={columns}
+                    defaultColDef={{ resizable: true }}
+                    rowSelection="single"
+                    onRowClicked={(e) => e.data && loadDetail(e.data.id)}
+                    pagination={true}
+                    paginationPageSize={10}
+                  />
+                </div>
+              )}
+
+              <p className="ledger-footer">
+                Score = checklist score 0–100 (tracking DELIVERED 30 + delivery
+                verifiable 15 + signature 15 + merchant log 25 + invoice/terms
+                15). Routing policy: ≥75 CONTEST_HARD_PROOF · 35–74
+                DE_ESCALATE_OFFER · &lt;35 CONCEDE_FAST_SETTLE. Click any row to
+                open the adversarial debate &amp; human approval drawer.
+              </p>
+            </section>
+          )}
+        </div>
       </div>
+
+      {/* Right Slide-Over Debate & Human Gate Drawer */}
+      {detail && selectedId && (
+        <div
+          className="drawer-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setDetail(null);
+              setSelectedId(null);
+            }
+          }}
+        >
+          <aside className="drawer" aria-label="Adversarial debate inspector">
+            <div className="drawer-header">
+              <div>
+                <h2>{detail.dispute.id}</h2>
+                <p className="drawer-meta">
+                  {detail.dispute.reason} · ${detail.dispute.amount.value}{" "}
+                  {detail.dispute.amount.currency_code} ·{" "}
+                  {detail.dispute.dispute_life_cycle_stage} /{" "}
+                  {detail.dispute.status}
+                </p>
+                <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                  {detail.dispute.source === "seeded" ? (
+                    <span className="badge sim">SEEDED — SIMULATED</span>
+                  ) : (
+                    <span className="badge na">SANDBOX</span>
+                  )}
+                  {run ? (
+                    verdictBadge(run.verdict)
+                  ) : (
+                    <span className="badge na">NOT RUN</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setDetail(null);
+                  setSelectedId(null);
+                }}
+              >
+                Close ✕
+              </button>
+            </div>
+
+            <div className="drawer-body">
+              {/* Swarm Controls */}
+              <div className="actions">
+                <button
+                  className="primary"
+                  onClick={() => runSwarm(detail.dispute.id)}
+                  disabled={loading}
+                >
+                  {loading ? "Running swarm…" : "Run swarm"}
+                </button>
+                <button
+                  onClick={async () => {
+                    const res = await fetch("/api/demo/replay-webhook", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ dispute_id: detail.dispute.id }),
+                    });
+                    await res.json();
+                    setNotice(
+                      `Replayed stored CUSTOMER.DISPUTE.CREATED for ${detail.dispute.id} (demo only, no live webhook).`,
+                    );
+                  }}
+                >
+                  Replay webhook
+                </button>
+                <a
+                  className="pdf-link"
+                  style={{ marginLeft: "auto", fontSize: 12.5 }}
+                  href={`/api/disputes/${detail.dispute.id}/evidence.pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Download PDF Dossier ↗
+                </a>
+              </div>
+
+              {/* Prominent Human Approval Gate — First-Class Trust Module */}
+              {run && (
+                <div className="approval-gate-card">
+                  <div className="approval-gate-header">
+                    <h3>Human Approval Gate (Mandatory)</h3>
+                    <span className="badge contest">
+                      Target: {actionForVerdict ?? "—"}
+                    </span>
+                  </div>
+
+                  {detail.approval ? (
+                    <p style={{ margin: "4px 0", fontSize: 12.5 }}>
+                      Approved: <b>{detail.approval.action}</b>
+                      {detail.approval.action === "make-offer" &&
+                        detail.approval.offer_amount && (
+                          <>
+                            {" "}
+                            — offer{" "}
+                            <b>
+                              ${detail.approval.offer_amount.value}{" "}
+                              {detail.approval.offer_amount.currency_code}
+                            </b>{" "}
+                            (REFUND, buyer keeps the item)
+                          </>
+                        )}{" "}
+                      by <b>{detail.approval.approved_by ?? "demo merchant"}</b>{" "}
+                      at {detail.approval.approved_at}
+                    </p>
+                  ) : (
+                    <p style={{ margin: "4px 0", fontSize: 12.5, color: "#A1A1AA" }}>
+                      No approval recorded yet. PHALANX never executes a PayPal
+                      mutation without explicit human approval.
+                    </p>
+                  )}
+
+                  {run.verdict === "CONCEDE_FAST_SETTLE" && (
+                    <p className="gaplist" style={{ marginTop: 6 }}>
+                      Manual next step (not automated): file a carrier insurance
+                      claim for the lost package — PHALANX does not file claims
+                      automatically.
+                    </p>
+                  )}
+
+                  {detail.execution && (
+                    <p className="gaplist" style={{ marginTop: 6 }}>
+                      Last execution attempt: {detail.execution.paypal_status} —{" "}
+                      {detail.execution.note}
+                    </p>
+                  )}
+
+                  <div className="gate-actions">
+                    <button
+                      className="primary"
+                      onClick={() =>
+                        actionForVerdict &&
+                        approve(detail.dispute.id, actionForVerdict)
+                      }
+                      disabled={!isApproveAllowed || loading}
+                    >
+                      Approve {actionForVerdict ?? "—"}
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => execute(detail.dispute.id)}
+                      disabled={!isExecuteAllowed || loading}
+                    >
+                      Execute (gated)
+                    </button>
+                  </div>
+                  {actionForVerdict && !isApproveAllowed && (
+                    <p className="gaplist" style={{ marginTop: 6 }}>
+                      Verdict action {actionForVerdict} is not allowed on this
+                      dispute (live allowed:{" "}
+                      {detail.dispute.allowed_actions.join(", ") || "none"}).
+                      Approve is disabled — the server would refuse it.
+                    </p>
+                  )}
+                  <p className="footnote">
+                    Execute is disabled until Approve, and until the action is
+                    live-allowed. In this run live execution is not enabled —
+                    Execute records a refusal (negative test, logged).
+                  </p>
+                </div>
+              )}
+
+              {/* Judge Framing & Reasoning Callout (feat/llm-wiring support) */}
+              {run && (run.issue_framing || run.verdict_reasoning) && (
+                <div className="judge-card">
+                  <h3>Judge Framing &amp; Verdict Summary (Deliberation Only)</h3>
+                  {run.issue_framing && (
+                    <p style={{ margin: "0 0 6px", fontSize: 12.5 }}>
+                      <b>Issue framing:</b> {run.issue_framing}
+                    </p>
+                  )}
+                  {run.verdict_reasoning && (
+                    <p style={{ margin: 0, fontSize: 12.5 }}>
+                      <b>Verdict explanation:</b> {run.verdict_reasoning}
+                    </p>
+                  )}
+                  <p className="footnote">
+                    Note: The routing verdict ({run.verdict}) is strictly
+                    computed from the deterministic checklist score ({run.score}
+                    /100), never decided by the LLM.
+                  </p>
+                </div>
+              )}
+
+              {/* Evidence Artifacts */}
+              <div className="drawer-section">
+                <h3>Evidence artifacts</h3>
+                {detail.artifacts.length === 0 ? (
+                  <p className="gaplist">No artifacts yet.</p>
+                ) : (
+                  <dl className="kv">
+                    {detail.artifacts.map((a) => (
+                      <span key={a.id} style={{ display: "contents" }}>
+                        <dt>
+                          [{a.kind}]{a.simulated ? " (SIM)" : ""}
+                        </dt>
+                        <dd>{a.summary}</dd>
+                      </span>
+                    ))}
+                  </dl>
+                )}
+              </div>
+
+              {run && (
+                <>
+                  {/* Score Progression */}
+                  <div className="drawer-section">
+                    <h3>Score — before / after</h3>
+                    {run.iterations.map((it) => (
+                      <p
+                        key={it.iteration}
+                        style={{
+                          margin: "4px 0",
+                          fontFamily: "var(--font-mono), monospace",
+                          fontSize: 12,
+                        }}
+                      >
+                        {it.draft_version}: {it.score_before} →{" "}
+                        <b>{it.score}/100</b> · {it.verdict} ·{" "}
+                        {it.accepted ? "ACCEPTED" : "REJECTED"}
+                      </p>
+                    ))}
+                    <p className="footnote">
+                      Final: <b>{run.score}/100</b> — checklist score, not a win
+                      probability. Run time: {run.duration_ms} ms.
+                    </p>
+                  </div>
+
+                  {/* Named Gaps */}
+                  <div className="drawer-section">
+                    <h3>Named gaps</h3>
+                    {run.gaps.length === 0 ? (
+                      <p style={{ margin: 0 }}>
+                        No gaps — every checklist item has an artifact.
+                      </p>
+                    ) : (
+                      <ul className="gaplist">
+                        {run.gaps.map((g) => (
+                          <li key={g}>{g}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Illustrative EV */}
+                  {run.ev_display && (
+                    <div className="drawer-section">
+                      <h3>Illustrative EV — not a PayPal outcome prediction</h3>
+                      <dl className="kv">
+                        <dt>EV contest</dt>
+                        <dd>${run.ev_display.ev_contest.toFixed(2)}</dd>
+                        <dt>Concede cost</dt>
+                        <dd>${run.ev_display.concede_cost.toFixed(2)}</dd>
+                        <dt>Offer cost (40%)</dt>
+                        <dd>${run.ev_display.offer_cost.toFixed(2)}</dd>
+                        <dt>Fee basis</dt>
+                        <dd>{run.ev_display.fee_basis}</dd>
+                      </dl>
+                    </div>
+                  )}
+
+                  {/* Adversarial Debate Transcript */}
+                  <div className="drawer-section">
+                    <h3>Adversarial debate transcript</h3>
+                    {run.messages.map((m, i) => (
+                      <div key={i} className={`msg ${m.kind}`}>
+                        <div className="actor">
+                          {m.actor} · iter {m.iteration} · {m.kind}
+                        </div>
+                        <pre>{m.text}</pre>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Allowed Actions & PDF Dossier */}
+                  <div className="drawer-section">
+                    <h3>Evidence dossier (PDF) &amp; Allowed Actions</h3>
+                    <p style={{ margin: "0 0 10px" }}>
+                      <a
+                        className="pdf-link"
+                        href={`/api/disputes/${detail.dispute.id}/evidence.pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Download evidence dossier (PDF) ↗
+                      </a>{" "}
+                      <span className="footnote">
+                        — preview before approval; SIMULATED watermark on seeded
+                        disputes.
+                      </span>
+                    </p>
+                    <details>
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          fontSize: 12,
+                          color: "#A1A1AA",
+                        }}
+                      >
+                        PayPal says I can… (allowed actions)
+                      </summary>
+                      <pre
+                        style={{
+                          fontSize: 11.5,
+                          background: "#121212",
+                          padding: 10,
+                          borderRadius: 6,
+                          marginTop: 8,
+                        }}
+                      >
+                        {JSON.stringify(detail.dispute.allowed_actions, null, 2)}
+                        {detail.dispute.source === "seeded"
+                          ? "\n(SIMULATED list for seeded disputes — live gating applies to Sandbox rows.)"
+                          : ""}
+                      </pre>
+                    </details>
+                  </div>
+                </>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

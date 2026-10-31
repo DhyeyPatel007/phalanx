@@ -1,15 +1,32 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "PHALANX — PayPal dispute-defense swarm",
+  title: "PHALANX // Dispute Defense Workbench",
   description:
-    "Adversarial dispute-defense workbench for a small PayPal merchant. Checklist scores are an internal heuristic, not a win probability. Sandbox only.",
+    "Adversarial multi-agent dispute defense workbench for PayPal Sandbox merchants. Human approves every action.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body>{children}</body>
     </html>
   );
