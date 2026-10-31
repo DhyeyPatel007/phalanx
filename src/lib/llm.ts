@@ -1,6 +1,6 @@
 // LLM Provider System — brief §7, phase 1.
 // General API layer supporting OpenAI-compatible chat completions.
-// Supported: gemini (via OpenAI endpoint), openai, grok, deepseek, kimi, groq, custom.
+// Supported: gemini (via OpenAI endpoint), openai, grok, deepseek, kimi, groq, nvidia, custom.
 // Hard invariants:
 // - draft() returns string | null; returns null immediately when no key is configured.
 // - Timeouts + exactly 1 retry on network/5xx errors.
@@ -59,6 +59,13 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
     defaultModel: "llama-3.3-70b-versatile",
     cheapModel: "llama-3.1-8b-instant",
     envKey: "GROQ_API_KEY",
+  },
+  nvidia: {
+    name: "nvidia",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    defaultModel: "nvidia/llama-3.1-nemotron-70b-instruct",
+    cheapModel: "meta/llama-3.1-8b-instruct",
+    envKey: "NVIDIA_API_KEY",
   },
   custom: {
     name: "custom",

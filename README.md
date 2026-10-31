@@ -49,6 +49,7 @@ PHALANX supports multiple OpenAI-compatible LLM providers through a unified inte
 - **DeepSeek**: `LLM_PROVIDER=deepseek`, default model `deepseek-chat`, env `DEEPSEEK_API_KEY`.
 - **Moonshot Kimi**: `LLM_PROVIDER=kimi`, default model `kimi-k2.5`, env `MOONSHOT_API_KEY`.
 - **Groq**: `LLM_PROVIDER=groq`, default model `llama-3.3-70b-versatile`, env `GROQ_API_KEY`.
+- **NVIDIA NIM**: `LLM_PROVIDER=nvidia`, default model `nvidia/llama-3.1-nemotron-70b-instruct`, env `NVIDIA_API_KEY` (starts with `nvapi-`). *Terms note:* NVIDIA's free tier is trial/testing-only under its terms (not for production use) — Gemini remains the recommended free path for end users.
 - **Custom**: `LLM_PROVIDER=custom`, base URL `LLM_BASE_URL`, model `LLM_MODEL`, key `LLM_API_KEY`.
 
 ### Deterministic fallback
@@ -87,7 +88,7 @@ PHALANX_BASE_URL=http://localhost:3100 node scripts/negative-tests.mjs
 - **PayPal Disputes API (Sandbox)** — list/detail, webhook verification; execution calls are wired through the approval gate but refuse live calls until Sandbox is connected.
 - **AG Grid Community** — the dispute ledger (sorting, filtering, quick filter, pagination). No Enterprise features.
 - **pdf-lib** — server-side evidence dossier generation.
-- **LLM: Multi-provider support via OpenAI-compatible API (`src/lib/llm.ts`).** Supports Gemini (default), OpenAI, Grok, DeepSeek, Kimi, Groq, and custom endpoints. The LLM drafts rebuttal wording (Prosecutor), runs a 3-agent jury audit (Evidence, Policy, Buyer-Sympathy), and provides issue framing (Judge). The verdict, score, and PayPal execution gates remain 100% deterministic code. With no key, PHALANX falls back seamlessly to deterministic templates.
+- **LLM: Multi-provider support via OpenAI-compatible API (`src/lib/llm.ts`).** Supports Gemini (default), OpenAI, Grok, DeepSeek, Kimi, Groq, NVIDIA NIM, and custom endpoints. The LLM drafts rebuttal wording (Prosecutor), runs a 3-agent jury audit (Evidence, Policy, Buyer-Sympathy), and provides issue framing (Judge). The verdict, score, and PayPal execution gates remain 100% deterministic code. With no key, PHALANX falls back seamlessly to deterministic templates.
 - **Next.js 16 (App Router) + TypeScript**, in-memory/JSON evidence store. No database, no queue, no extra services.
 
 ## Known limits

@@ -179,8 +179,8 @@ async function pdfChecks(): Promise<void> {
 
 // ---- Phase 1: LLM provider registry checks ----
 {
-  const expectedProviders = ["gemini", "openai", "grok", "deepseek", "kimi", "groq", "custom"];
-  check("LLM provider registry contains all 7 providers", expectedProviders.length, Object.keys(PROVIDER_REGISTRY).length);
+  const expectedProviders = ["gemini", "openai", "grok", "deepseek", "kimi", "groq", "nvidia", "custom"];
+  check("LLM provider registry contains all 8 providers", expectedProviders.length, Object.keys(PROVIDER_REGISTRY).length);
   for (const name of expectedProviders) {
     check(`LLM registry has ${name}`, true, Boolean(PROVIDER_REGISTRY[name]));
   }
@@ -192,6 +192,7 @@ async function pdfChecks(): Promise<void> {
   check("deepseek baseUrl", "https://api.deepseek.com/v1", PROVIDER_REGISTRY.deepseek.baseUrl);
   check("kimi baseUrl", "https://api.moonshot.ai/v1", PROVIDER_REGISTRY.kimi.baseUrl);
   check("groq baseUrl", "https://api.groq.com/openai/v1", PROVIDER_REGISTRY.groq.baseUrl);
+  check("nvidia baseUrl", "https://integrate.api.nvidia.com/v1", PROVIDER_REGISTRY.nvidia.baseUrl);
 
   // Default models
   check("gemini default model", "gemini-3.8-flash", PROVIDER_REGISTRY.gemini.defaultModel);
@@ -200,6 +201,7 @@ async function pdfChecks(): Promise<void> {
   check("deepseek default model", "deepseek-chat", PROVIDER_REGISTRY.deepseek.defaultModel);
   check("kimi default model", "kimi-k2.5", PROVIDER_REGISTRY.kimi.defaultModel);
   check("groq default model", "llama-3.3-70b-versatile", PROVIDER_REGISTRY.groq.defaultModel);
+  check("nvidia default model", "nvidia/llama-3.1-nemotron-70b-instruct", PROVIDER_REGISTRY.nvidia.defaultModel);
 
   // Default provider lookup
   check("default provider lookup resolves gemini", "gemini", getProviderConfig()?.name);
@@ -208,17 +210,24 @@ async function pdfChecks(): Promise<void> {
 // ---- Phase 1: draft() returns null when no key is configured ----
 async function draftNoKeyChecks(): Promise<void> {
   const savedKey = process.env.GEMINI_API_KEY;
+  const savedNvidiaKey = process.env.NVIDIA_API_KEY;
   const savedProvider = process.env.LLM_PROVIDER;
   const savedUniversal = process.env.LLM_API_KEY;
   try {
     delete process.env.GEMINI_API_KEY;
+    delete process.env.NVIDIA_API_KEY;
     delete process.env.LLM_API_KEY;
-    process.env.LLM_PROVIDER = "gemini";
 
-    const res = await draft("test prompt");
-    check("draft() returns null immediately when no key is configured", null, res);
+    process.env.LLM_PROVIDER = "gemini";
+    const resGemini = await draft("test prompt");
+    check("draft() returns null immediately when no key is configured (gemini)", null, resGemini);
+
+    process.env.LLM_PROVIDER = "nvidia";
+    const resNvidia = await draft("test prompt");
+    check("draft() returns null immediately when no key is configured (nvidia)", null, resNvidia);
   } finally {
     if (savedKey) process.env.GEMINI_API_KEY = savedKey;
+    if (savedNvidiaKey) process.env.NVIDIA_API_KEY = savedNvidiaKey;
     if (savedProvider) process.env.LLM_PROVIDER = savedProvider;
     if (savedUniversal) process.env.LLM_API_KEY = savedUniversal;
   }
