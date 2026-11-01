@@ -187,6 +187,90 @@ export function aggregateJuryGaps(...gapLists: string[][]): string[] {
   return result;
 }
 
+export function classifyGapDomain(gap: string): string {
+  const g = gap.toLowerCase();
+  if (g.includes("signature") || g.includes("signed")) return "signature";
+  if (
+    g.includes("carrier") ||
+    g.includes("tracking number") ||
+    g.includes("verifiable") ||
+    g.includes("date")
+  )
+    return "verifiable";
+  if (g.includes("delivery") || g.includes("delivered") || g.includes("tracking"))
+    return "tracking";
+  if (
+    g.includes("merchant log") ||
+    g.includes("post-delivery") ||
+    g.includes("access") ||
+    g.includes("license") ||
+    g.includes("condition") ||
+    g.includes("qa")
+  )
+    return "merchant_log";
+  if (
+    g.includes("invoice") ||
+    g.includes("terms") ||
+    g.includes("order record") ||
+    g.includes("receipt")
+  )
+    return "invoice";
+  return "other";
+}
+
+export function tagJuryQuorum(
+  evidenceGaps: string[],
+  policyGaps: string[],
+  buyerGaps: string[],
+): {
+  evidenceGaps: string[];
+  policyGaps: string[];
+  buyerGaps: string[];
+  combinedGaps: string[];
+  quorumDomains: Set<string>;
+} {
+  const domainCounts: Record<string, number> = {};
+  const lists = [evidenceGaps, policyGaps, buyerGaps];
+
+  for (const list of lists) {
+    const listDomains = new Set<string>();
+    for (const g of list) {
+      listDomains.add(classifyGapDomain(g));
+    }
+    for (const d of listDomains) {
+      if (d !== "other") {
+        domainCounts[d] = (domainCounts[d] ?? 0) + 1;
+      }
+    }
+  }
+
+  const quorumDomains = new Set<string>(
+    Object.entries(domainCounts)
+      .filter(([_, count]) => count >= 2)
+      .map(([domain]) => domain),
+  );
+
+  const tagList = (list: string[]) =>
+    list.map((g) => {
+      const d = classifyGapDomain(g);
+      const isQuorum = quorumDomains.has(d);
+      return isQuorum ? `[QUORUM 2/3+] ${g}` : `[ADVISORY 1/3] ${g}`;
+    });
+
+  const taggedEvidence = tagList(evidenceGaps);
+  const taggedPolicy = tagList(policyGaps);
+  const taggedBuyer = tagList(buyerGaps);
+  const combinedGaps = aggregateJuryGaps(taggedEvidence, taggedPolicy, taggedBuyer);
+
+  return {
+    evidenceGaps: taggedEvidence,
+    policyGaps: taggedPolicy,
+    buyerGaps: taggedBuyer,
+    combinedGaps,
+    quorumDomains,
+  };
+}
+
 export interface JuryResults {
   evidenceGaps: string[];
   policyGaps: string[];
@@ -265,9 +349,14 @@ Output ONLY bullet points of buyer vulnerabilities.`,
     const evidenceGaps = parseGapLines(results[0]!);
     const policyGaps = parseGapLines(results[1]!);
     const buyerGaps = parseGapLines(results[2]!);
-    const combinedGaps = aggregateJuryGaps(evidenceGaps, policyGaps, buyerGaps);
+    const tagged = tagJuryQuorum(evidenceGaps, policyGaps, buyerGaps);
 
-    return { evidenceGaps, policyGaps, buyerGaps, combinedGaps };
+    return {
+      evidenceGaps: tagged.evidenceGaps,
+      policyGaps: tagged.policyGaps,
+      buyerGaps: tagged.buyerGaps,
+      combinedGaps: tagged.combinedGaps,
+    };
   } catch {
     return null;
   }
@@ -381,6 +470,7 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
   tracker.endPhase("hound_init", `${available.length} fast artifact(s) loaded`);
 
   let best: SwarmIteration | null = null;
+  let llmDegraded = !isLLMConfigured();
 
   for (let i = 1; i <= MAX_ITERATIONS; i++) {
     const { score, gaps: deterministicGaps } = scoreDispute(dispute, available);
@@ -391,7 +481,16 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
 
     // Prosecutor draft phase
     tracker.startPhase(`prosecutor_v${i}`, `Prosecutor drafting rebuttal v${i}`, "Prosecutor", i);
-    const draftText = await draftProsecutor(dispute, available, version, preferredAction);
+    let draftText: string;
+    if (llmDegraded) {
+      draftText = rebuttalFromTemplate(dispute, available, version);
+    } else {
+      draftText = await draftProsecutor(dispute, available, version, preferredAction);
+      if (draftText.startsWith("Rebuttal v") && draftText.includes("Merchant position:")) {
+        // Circuit breaker: LLM degraded to template; skip LLM in jury/judge to avoid repeated timeouts
+        llmDegraded = true;
+      }
+    }
     msg(i, "Prosecutor", "draft", draftText);
     tracker.endPhase(`prosecutor_v${i}`, `Draft v${i} ready`);
 
@@ -403,8 +502,15 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
       i,
     );
 
-    // Jury layer (Evidence, Policy, Buyer-Sympathy jurors)
-    const jury = await runJury(dispute, available, draftText);
+    // Un-fetched artifacts available in store
+    const unFetchedArtifacts = allArtifacts.filter(
+      (a) => !available.some((x) => x.id === a.id),
+    );
+    const hasRetrievableArtifacts = unFetchedArtifacts.length > 0;
+
+    // Skip redundant jury on un-retrievable concede or when degraded
+    const skipJury = llmDegraded || (score < 35 && !hasRetrievableArtifacts);
+    const jury = skipJury ? null : await runJury(dispute, available, draftText);
 
     let activeGaps = deterministicGaps;
     if (jury) {
@@ -423,24 +529,34 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     );
     const merchantLogRetrievable =
       merchantLogMissing &&
-      allArtifacts.some(
-        (a) => a.kind === "merchant_log" && !available.some((x) => x.id === a.id),
-      );
+      unFetchedArtifacts.some((a) => a.kind === "merchant_log");
 
     let accepted = true;
     let rejection = "";
-    if (merchantLogRetrievable && verdict === "CONTEST_HARD_PROOF") {
-      accepted = false;
-      rejection =
-        "REJECTED — named gap: merchant log tying buyer to post-delivery use is missing. A tracking-only draft cannot support CONTEST_HARD_PROOF. Hound: fetch the merchant log.";
-    } else if (
+
+    // Stopping Rule 1: Target reached
+    if (score >= 75 && !merchantLogRetrievable) {
+      accepted = true;
+    }
+    // Stopping Rule 2: Exhausted store / Zero delta (no retrievable artifacts in store) -> accept v1
+    else if (!hasRetrievableArtifacts) {
+      accepted = true;
+    }
+    // Stopping Rule 3: Zero score improvement on iteration > 1
+    else if (i > 1 && score <= scoreBefore) {
+      accepted = true;
+    }
+    // Otherwise, if retrievable merchant log is missing and iterations remain, reject to fetch
+    else if (
       merchantLogRetrievable &&
-      score < 75 &&
-      dispute.reason === "MERCHANDISE_OR_SERVICE_NOT_RECEIVED"
+      (score < 75 || verdict === "CONTEST_HARD_PROOF") &&
+      i < MAX_ITERATIONS
     ) {
       accepted = false;
       rejection =
-        "REJECTED — named gap: merchant log tying buyer to post-delivery use is missing. Score below the contest band; Hound: fetch the merchant log before triage.";
+        "REJECTED — named gap: merchant log tying buyer to post-delivery use is missing. A tracking-only draft cannot support CONTEST_HARD_PROOF. Hound: fetch the merchant log.";
+    } else {
+      accepted = true;
     }
 
     if (!accepted) {
@@ -528,7 +644,9 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
 
   // Judge framing phase
   tracker.startPhase("judge_framing", "Judge framing issue & verdict rationale", "Judge", 0);
-  const judge = await runJudge(dispute, finalScore, finalVerdict, available, finalGaps);
+  const judge = llmDegraded
+    ? {}
+    : await runJudge(dispute, finalScore, finalVerdict, available, finalGaps);
   if (judge.issueFraming || judge.verdictReasoning) {
     const lines = [
       judge.issueFraming ? `Issue Framing: ${judge.issueFraming}` : null,
@@ -559,7 +677,7 @@ export async function runSwarm(dispute: Dispute): Promise<SwarmRun> {
     score: finalScore,
     gaps: finalGaps,
     verdict: finalVerdict,
-    ev_display: evDisplay(finalScore, amount, undefined, dispute.dispute_life_cycle_stage),
+    ev_display: evDisplay(finalScore, amount, undefined, dispute),
     status: "AWAITING_APPROVAL",
     duration_ms: Date.now() - started,
     created_at: new Date().toISOString(),

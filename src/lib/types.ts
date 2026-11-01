@@ -62,12 +62,20 @@ export interface ChecklistItem {
 }
 
 export interface EvDisplay {
-  /** Illustrative EV — not a PayPal outcome prediction. Fee basis shown. */
-  ev_contest: number;
+  /** Deterministic Outcome & Break-Even Matrix — NEVER a win probability prediction. */
+  contest_upheld_net_usd: number;       // $0.00 loss ($amount retained, $15 fee waived on seller win)
+  contest_lost_cost_usd: number;        // +(amount + fee) worst-case loss if contested and lost
+  offer_cost_usd: number;               // Dynamic partial refund offer amount ($0 fee in INQUIRY)
+  offer_retained_usd: number;           // +(amount - offer_cost_usd) retained by merchant
+  offer_pct: number;                    // e.g. 40 for 40%
+  concede_cost_usd: number;             // +amount in INQUIRY ($0 fee) or +(amount + fee) in CLAIM/CHARGEBACK
+  breakeven_win_rate_vs_offer_pct: number; // Algebraic threshold: (amount - offer + fee) / (amount + fee) * 100
+  /** Legacy compatibility aliases for existing tests/UI */
   concede_cost: number;
   offer_cost: number;
   fee_usd: number;
   fee_basis: string;
+  ev_contest: number;
 }
 
 export type DebateKind = "draft" | "critique" | "gap" | "artifact" | "verdict";

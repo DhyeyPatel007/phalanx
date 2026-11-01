@@ -156,10 +156,11 @@ export async function draft(
     temperature: 0.2,
   });
 
-  // Up to 3 attempts total on network or 5xx errors; 4xx errors fail immediately.
-  // Backoff: 1s before attempt 2, 2s before attempt 3.
-  const MAX_ATTEMPTS = 3;
+  // Bounded attempt budget (Decision #8): per-call timeout 60s.
+  // Do NOT retry on timeout (AbortError); only retry once on fast (<4000ms) network/5xx drops.
+  const MAX_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const attemptStart = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -191,18 +192,23 @@ export async function draft(
         return null;
       }
 
-      // 5xx errors may be retried if attempts remain
-      if (attempt < MAX_ATTEMPTS) {
-        const backoffMs = attempt === 1 ? 1000 : 2000;
-        await new Promise((r) => setTimeout(r, backoffMs));
+      // 5xx errors: only retry once if failure was immediate (< 4000ms)
+      const elapsed = Date.now() - attemptStart;
+      if (attempt === 1 && elapsed < 4000) {
+        await new Promise((r) => setTimeout(r, 1000));
         continue;
       }
       return null;
-    } catch {
+    } catch (err) {
       clearTimeout(timer);
-      if (attempt < MAX_ATTEMPTS) {
-        const backoffMs = attempt === 1 ? 1000 : 2000;
-        await new Promise((r) => setTimeout(r, backoffMs));
+      const elapsed = Date.now() - attemptStart;
+      const isAbort = (err as { name?: string })?.name === "AbortError";
+      // Fast-fail on timeout or slow abort
+      if (isAbort || elapsed >= 4000) {
+        return null;
+      }
+      if (attempt === 1) {
+        await new Promise((r) => setTimeout(r, 1000));
         continue;
       }
       return null;

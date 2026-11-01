@@ -5,7 +5,7 @@
 import { PDFDocument } from "pdf-lib";
 import { artifactsFromDetail } from "../src/lib/ingest";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
-import { evDisplay, scoreDispute } from "../src/lib/scorer";
+import { computeOfferAmount, computeOfferPct, evDisplay, resolveFeeForDispute, scoreDispute } from "../src/lib/scorer";
 import { draft, getProviderConfig, PROVIDER_REGISTRY, stripThinking } from "../src/lib/llm";
 import {
   aggregateJuryGaps,
@@ -13,6 +13,7 @@ import {
   parseJudgeOutput,
   rebuttalFromTemplate,
   runSwarm,
+  tagJuryQuorum,
   validateDraftAmounts,
 } from "../src/lib/swarm";
 import { getDispute, getSwarmProgress, loadSeed } from "../src/lib/store";
@@ -374,6 +375,47 @@ async function swarmAndTrackerChecks(): Promise<void> {
   check("Seeded C score is 0", 0, runC.score);
   check("Seeded C verdict is CONCEDE_FAST_SETTLE", "CONCEDE_FAST_SETTLE", runC.verdict);
   check("Seeded C took 1 iteration", 1, runC.iterations.length);
+}
+
+
+// ---- Method Decisions 1-8: Deterministic Outcome Matrix, Offer Sizing, Fee Resolution & Quorum ----
+{
+  // Decision 1: Deterministic Outcome Matrix & Break-Even calculation
+  const m = evDisplay(60, 210, 15, "INQUIRY");
+  check("Outcome matrix contest_upheld_net_usd is 0", 0, m.contest_upheld_net_usd);
+  check("Outcome matrix contest_lost_cost_usd is 225", 225, m.contest_lost_cost_usd);
+  check("Outcome matrix offer_cost_usd is 84", 84, m.offer_cost_usd);
+  check("Outcome matrix offer_retained_usd is 126", 126, m.offer_retained_usd);
+  check("Outcome matrix offer_pct is 40", 40, m.offer_pct);
+  check("Outcome matrix concede_cost_usd in INQUIRY is 210", 210, m.concede_cost_usd);
+  check("Outcome matrix breakeven_win_rate_vs_offer_pct is 63%", 63, m.breakeven_win_rate_vs_offer_pct);
+
+  // Decision 3: Dynamic Offer Sizing
+  check("computeOfferPct at score 60 is 0.40", 0.4, computeOfferPct(60));
+  check("computeOfferAmount at score 60 ($210) returns $84.00", 84, computeOfferAmount(60, 210).offerUsd);
+  check("computeOfferPct at score 75 clamps to 0.28", 0.28, computeOfferPct(75));
+  check("computeOfferPct at score 35 is 0.60", 0.6, computeOfferPct(35));
+
+  // Decision 7: Fee Resolution
+  const stdFee = resolveFeeForDispute(dispute({ id: "TEST", dispute_life_cycle_stage: "INQUIRY" }));
+  check("resolveFeeForDispute default is $15", 15, stdFee.feeUsd);
+  const cbFee = resolveFeeForDispute(
+    dispute({
+      id: "TEST-CB",
+      dispute_life_cycle_stage: "CHARGEBACK",
+      raw_paypal_detail: { dispute_channel: "EXTERNAL" },
+    }),
+  );
+  check("resolveFeeForDispute external chargeback is $20", 20, cbFee.feeUsd);
+
+  // Decision 6: Quorum Tagging
+  const j1 = ["Signature missing from tracking"];
+  const j2 = ["Signature confirmation absent from courier proof", "Return policy missing"];
+  const j3 = ["Buyer demands signature receipt"];
+  const tagged = tagJuryQuorum(j1, j2, j3);
+  check("Quorum identifies signature as quorum domain", true, tagged.quorumDomains.has("signature"));
+  check("Tagged jury output contains [QUORUM 2/3+]", true, tagged.combinedGaps.some((g) => g.startsWith("[QUORUM 2/3+]")));
+  check("Tagged jury output contains [ADVISORY 1/3]", true, tagged.combinedGaps.some((g) => g.startsWith("[ADVISORY 1/3]")));
 }
 
 async function main(): Promise<void> {
