@@ -98,12 +98,16 @@ export function isLLMConfigured(): boolean {
 }
 
 /**
- * Strip <think>...</think> reasoning blocks from model output.
- * Ensures reasoning model deliberation never leaks into rebuttals or Judge summaries.
+ * Strip <think>...</think> reasoning blocks and markdown formatting (** and __) from model output.
+ * Ensures reasoning deliberation and raw markdown markers never leak into rebuttals or Judge summaries.
  */
 export function stripThinking(text: string): string {
   if (!text) return "";
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
+    .trim();
 }
 
 export interface DraftOptions {

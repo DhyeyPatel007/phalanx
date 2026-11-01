@@ -320,6 +320,12 @@ VERDICT_REASONING: The evidence score of 85/100 fulfills tracking and post-deliv
   );
 
   check("stripThinking handles empty string", "", stripThinking(""));
+  const markdownText = "<think>internal reasoning</think>**The decisive question** is whether __delivery__ was verified.";
+  check(
+    "stripThinking removes thinking tags and markdown bold/italic markers",
+    "The decisive question is whether delivery was verified.",
+    stripThinking(markdownText),
+  );
 }
 
 // ---- Live Swarm Phase Tracker & Seeded Dispute Integration ----

@@ -366,8 +366,9 @@ export function parseJudgeOutput(text: string): {
   issueFraming?: string;
   verdictReasoning?: string;
 } {
-  const issueMatch = text.match(/ISSUE_FRAMING:\s*([\s\S]*?)(?=VERDICT_REASONING:|$)/i);
-  const reasoningMatch = text.match(/VERDICT_REASONING:\s*([\s\S]*?)$/i);
+  const clean = text.replace(/\*\*/g, "").replace(/__/g, "");
+  const issueMatch = clean.match(/ISSUE_FRAMING:\s*([\s\S]*?)(?=VERDICT_REASONING:|$)/i);
+  const reasoningMatch = clean.match(/VERDICT_REASONING:\s*([\s\S]*?)$/i);
 
   const issueFraming = issueMatch ? issueMatch[1].trim() : undefined;
   const verdictReasoning = reasoningMatch ? reasoningMatch[1].trim() : undefined;
