@@ -6,9 +6,12 @@ import fs from "fs";
 import path from "path";
 import type {
   Approval,
+  DebateMessage,
   Dispute,
   EvidenceArtifact,
   ExecutionRecord,
+  SwarmPhaseItem,
+  SwarmProgress,
   SwarmRun,
 } from "./types";
 
@@ -35,6 +38,7 @@ interface PhalanxStoreState {
   runs: Map<string, SwarmRun[]>; // by dispute id
   approvals: Map<string, Approval>; // by dispute id (latest)
   executions: Map<string, ExecutionRecord>; // by dispute id
+  progress: Map<string, SwarmProgress>; // by dispute id
   processedWebhookEvents: Set<string>;
   webhookLog: { at: string; event_id: string; result: string; detail: string }[];
   seeded: boolean;
@@ -58,6 +62,7 @@ function getStore(): PhalanxStoreState {
       runs: new Map(),
       approvals: new Map(),
       executions: new Map(),
+      progress: new Map(),
       processedWebhookEvents: new Set(),
       webhookLog: [],
       seeded: false,
@@ -72,6 +77,7 @@ const artifacts = store.artifacts;
 const runs = store.runs;
 const approvals = store.approvals;
 const executions = store.executions;
+const progressMap = store.progress;
 const processedWebhookEvents = store.processedWebhookEvents;
 const webhookLog = store.webhookLog;
 
@@ -238,4 +244,190 @@ export function getWebhookLog() {
 
 export function isSeeded(): boolean {
   return store.seeded;
+}
+
+export function setSwarmProgress(disputeId: string, progress: SwarmProgress): void {
+  progressMap.set(disputeId, progress);
+}
+
+export function getSwarmProgress(disputeId: string): SwarmProgress | null {
+  const p = progressMap.get(disputeId);
+  if (!p) return null;
+  if (p.status === "RUNNING") {
+    return {
+      ...p,
+      elapsed_ms: Math.max(0, Date.now() - Date.parse(p.started_at)),
+    };
+  }
+  return p;
+}
+
+export function createPhaseTracker(disputeId: string, runId: string) {
+  const startedAtIso = new Date().toISOString();
+  const startedAtMs = Date.now();
+
+  const initialPhases: SwarmPhaseItem[] = [
+    {
+      key: "hound_init",
+      label: "Hound gathering fast evidence",
+      actor: "Hound",
+      iteration: 0,
+      status: "pending",
+      started_at: null,
+      ended_at: null,
+      duration_ms: null,
+      messages: [],
+    },
+    {
+      key: "prosecutor_v1",
+      label: "Prosecutor drafting rebuttal v1",
+      actor: "Prosecutor",
+      iteration: 1,
+      status: "pending",
+      started_at: null,
+      ended_at: null,
+      duration_ms: null,
+      messages: [],
+    },
+    {
+      key: "redteam_jury_v1",
+      label: "Red-Team & Jury attacking draft v1",
+      actor: "Red-Team / Jury",
+      iteration: 1,
+      status: "pending",
+      started_at: null,
+      ended_at: null,
+      duration_ms: null,
+      messages: [],
+    },
+    {
+      key: "judge_framing",
+      label: "Judge framing issue & verdict rationale",
+      actor: "Judge",
+      iteration: 0,
+      status: "pending",
+      started_at: null,
+      ended_at: null,
+      duration_ms: null,
+      messages: [],
+    },
+    {
+      key: "arbiter_routing",
+      label: "Arbiter computing EV & routing policy",
+      actor: "Arbiter",
+      iteration: 0,
+      status: "pending",
+      started_at: null,
+      ended_at: null,
+      duration_ms: null,
+      messages: [],
+    },
+  ];
+
+  const state: SwarmProgress = {
+    run_id: runId,
+    dispute_id: disputeId,
+    status: "RUNNING",
+    started_at: startedAtIso,
+    elapsed_ms: 0,
+    current_phase_key: null,
+    current_phase_label: "Initializing swarm…",
+    phases: initialPhases,
+  };
+
+  setSwarmProgress(disputeId, state);
+
+  const ensurePhase = (
+    key: string,
+    label: string,
+    actor: string,
+    iteration: number,
+  ): SwarmPhaseItem => {
+    let found = state.phases.find((p) => p.key === key);
+    if (!found) {
+      found = {
+        key,
+        label,
+        actor,
+        iteration,
+        status: "pending",
+        started_at: null,
+        ended_at: null,
+        duration_ms: null,
+        messages: [],
+      };
+      // Insert dynamic retry phases right before judge_framing
+      const judgeIdx = state.phases.findIndex((p) => p.key === "judge_framing");
+      if (judgeIdx >= 0) {
+        state.phases.splice(judgeIdx, 0, found);
+      } else {
+        state.phases.push(found);
+      }
+    }
+    return found;
+  };
+
+  return {
+    startPhase(key: string, label: string, actor: string, iteration: number) {
+      const p = ensurePhase(key, label, actor, iteration);
+      p.status = "current";
+      p.started_at = new Date().toISOString();
+      state.current_phase_key = key;
+      state.current_phase_label = label;
+      state.elapsed_ms = Math.max(0, Date.now() - startedAtMs);
+      setSwarmProgress(disputeId, { ...state, phases: [...state.phases] });
+    },
+    addMessageToCurrentPhase(m: DebateMessage) {
+      if (!state.current_phase_key) return;
+      const p = state.phases.find((x) => x.key === state.current_phase_key);
+      if (p) {
+        p.messages = [...p.messages, m];
+        state.elapsed_ms = Math.max(0, Date.now() - startedAtMs);
+        setSwarmProgress(disputeId, { ...state, phases: [...state.phases] });
+      }
+    },
+    endPhase(key: string, summaryNote?: string) {
+      const p = state.phases.find((x) => x.key === key);
+      if (!p) return;
+      const endedIso = new Date().toISOString();
+      p.status = "done";
+      p.ended_at = endedIso;
+      const startMs = p.started_at ? Date.parse(p.started_at) : Date.now();
+      p.duration_ms = Math.max(0, Date.now() - startMs);
+      if (summaryNote) p.summary_note = summaryNote;
+      state.elapsed_ms = Math.max(0, Date.now() - startedAtMs);
+      setSwarmProgress(disputeId, { ...state, phases: [...state.phases] });
+    },
+    scheduleNextIterationPhases(nextIter: number, includeHoundDeep: boolean) {
+      if (includeHoundDeep) {
+        ensurePhase(
+          `hound_deep_v${nextIter}`,
+          `Hound fetching deep merchant logs (iter ${nextIter})`,
+          "Hound",
+          nextIter,
+        );
+      }
+      ensurePhase(
+        `prosecutor_v${nextIter}`,
+        `Prosecutor drafting rebuttal v${nextIter}`,
+        "Prosecutor",
+        nextIter,
+      );
+      ensurePhase(
+        `redteam_jury_v${nextIter}`,
+        `Red-Team & Jury attacking draft v${nextIter}`,
+        "Red-Team / Jury",
+        nextIter,
+      );
+      setSwarmProgress(disputeId, { ...state, phases: [...state.phases] });
+    },
+    finishRun(): SwarmPhaseItem[] {
+      state.status = "DONE";
+      state.current_phase_key = null;
+      state.current_phase_label = "Done";
+      state.elapsed_ms = Math.max(0, Date.now() - startedAtMs);
+      setSwarmProgress(disputeId, { ...state, phases: [...state.phases] });
+      return state.phases;
+    },
+  };
 }

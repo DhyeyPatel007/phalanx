@@ -1,18 +1,22 @@
 // PHALANX unit checks — pure-function regression tests for the Gemini
-// audit fixes (Oct 30, 2026). Run with:
-//   rm -rf /tmp/phalanx-unit && npx tsc scripts/unit-checks.ts --ignoreConfig \
-//     --module commonjs --target es2022 --moduleResolution bundler \
-//     --esModuleInterop --skipLibCheck --outDir /tmp/phalanx-unit \
-//     && NODE_PATH=$PWD/node_modules node /tmp/phalanx-unit/scripts/unit-checks.js
-// (The --ignoreConfig + bundler flags are needed because the project
-// tsconfig is Next-oriented; type errors about node globals in this
-// standalone compile are expected and do not block emit.)
+// audit fixes (Oct 30, 2026) + Phase 1 LLM wiring & jury layer (Oct 31, 2026).
 // Exits non-zero on any failure. No server, no live PayPal calls.
 
 import { PDFDocument } from "pdf-lib";
 import { artifactsFromDetail } from "../src/lib/ingest";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
-import { evDisplay, scoreDispute } from "../src/lib/scorer";
+import { computeOfferAmount, computeOfferPct, evDisplay, resolveFeeForDispute, scoreDispute } from "../src/lib/scorer";
+import { draft, getProviderConfig, PROVIDER_REGISTRY, stripThinking } from "../src/lib/llm";
+import {
+  aggregateJuryGaps,
+  draftProsecutor,
+  parseJudgeOutput,
+  rebuttalFromTemplate,
+  runSwarm,
+  tagJuryQuorum,
+  validateDraftAmounts,
+} from "../src/lib/swarm";
+import { getDispute, getSwarmProgress, loadSeed } from "../src/lib/store";
 import type { Dispute, EvidenceArtifact, SwarmRun } from "../src/lib/types";
 
 let failures = 0;
@@ -135,9 +139,6 @@ async function pdfChecks(): Promise<void> {
   const loaded = await PDFDocument.load(bytes);
   check("#3 hostile-Unicode PDF has 5 pages", 5, loaded.getPageCount());
 
-  // 25 artifacts x ~30pt each = ~750pt > ~674pt available on page 5, so
-  // the pagination guard must start a continuation page (12 would still
-  // fit on one page — verified by arithmetic, not assumed).
   const many: EvidenceArtifact[] = Array.from({ length: 25 }, (_, i) =>
     artifact(`m${i + 1}`, "invoice", `Invoice INV-TEST-${i + 1} + order record present`),
   );
@@ -179,8 +180,255 @@ async function pdfChecks(): Promise<void> {
   check("#9 after a run shows all artifacts", 3, artifactsForPdf(all, { id: "run-x" } as SwarmRun).length);
 }
 
+// ---- Phase 1: LLM provider registry checks ----
+{
+  const expectedProviders = ["gemini", "openai", "grok", "deepseek", "kimi", "groq", "nvidia", "custom"];
+  check("LLM provider registry contains all 8 providers", expectedProviders.length, Object.keys(PROVIDER_REGISTRY).length);
+  for (const name of expectedProviders) {
+    check(`LLM registry has ${name}`, true, Boolean(PROVIDER_REGISTRY[name]));
+  }
+
+  // Base URLs
+  check("gemini baseUrl", "https://generativelanguage.googleapis.com/v1beta/openai", PROVIDER_REGISTRY.gemini.baseUrl);
+  check("openai baseUrl", "https://api.openai.com/v1", PROVIDER_REGISTRY.openai.baseUrl);
+  check("grok baseUrl", "https://api.x.ai/v1", PROVIDER_REGISTRY.grok.baseUrl);
+  check("deepseek baseUrl", "https://api.deepseek.com/v1", PROVIDER_REGISTRY.deepseek.baseUrl);
+  check("kimi baseUrl", "https://api.moonshot.ai/v1", PROVIDER_REGISTRY.kimi.baseUrl);
+  check("groq baseUrl", "https://api.groq.com/openai/v1", PROVIDER_REGISTRY.groq.baseUrl);
+  check("nvidia baseUrl", "https://integrate.api.nvidia.com/v1", PROVIDER_REGISTRY.nvidia.baseUrl);
+
+  // Default models
+  check("gemini default model", "gemini-3.8-flash", PROVIDER_REGISTRY.gemini.defaultModel);
+  check("openai default model", "gpt-4o-mini", PROVIDER_REGISTRY.openai.defaultModel);
+  check("grok default model", "grok-4", PROVIDER_REGISTRY.grok.defaultModel);
+  check("deepseek default model", "deepseek-chat", PROVIDER_REGISTRY.deepseek.defaultModel);
+  check("kimi default model", "kimi-k2.5", PROVIDER_REGISTRY.kimi.defaultModel);
+  check("groq default model", "llama-3.3-70b-versatile", PROVIDER_REGISTRY.groq.defaultModel);
+  check("nvidia default model", "nvidia/llama-3.1-nemotron-70b-instruct", PROVIDER_REGISTRY.nvidia.defaultModel);
+
+  // Default provider lookup
+  check("default provider lookup resolves gemini", "gemini", getProviderConfig()?.name);
+}
+
+// ---- Phase 1: draft() returns null when no key is configured ----
+async function draftNoKeyChecks(): Promise<void> {
+  const savedKey = process.env.GEMINI_API_KEY;
+  const savedNvidiaKey = process.env.NVIDIA_API_KEY;
+  const savedProvider = process.env.LLM_PROVIDER;
+  const savedUniversal = process.env.LLM_API_KEY;
+  try {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.NVIDIA_API_KEY;
+    delete process.env.LLM_API_KEY;
+
+    process.env.LLM_PROVIDER = "gemini";
+    const resGemini = await draft("test prompt");
+    check("draft() returns null immediately when no key is configured (gemini)", null, resGemini);
+
+    process.env.LLM_PROVIDER = "nvidia";
+    const resNvidia = await draft("test prompt");
+    check("draft() returns null immediately when no key is configured (nvidia)", null, resNvidia);
+  } finally {
+    if (savedKey) process.env.GEMINI_API_KEY = savedKey;
+    if (savedNvidiaKey) process.env.NVIDIA_API_KEY = savedNvidiaKey;
+    if (savedProvider) process.env.LLM_PROVIDER = savedProvider;
+    if (savedUniversal) process.env.LLM_API_KEY = savedUniversal;
+  }
+}
+
+// ---- Phase 1: Prosecutor fallback to template on unconfigured key / provider failure ----
+async function prosecutorFallbackChecks(): Promise<void> {
+  const d = dispute({ id: "PP-D-PROS" });
+  const arts = [
+    artifact("t1", "tracking", "FEDEX 123456, DELIVERED"),
+    artifact("i1", "invoice", "Invoice INV-PROS-1"),
+  ];
+
+  // Without key, draftProsecutor must return the exact rebuttalFromTemplate output
+  const template = rebuttalFromTemplate(d, arts, "v1");
+  const draftResult = await draftProsecutor(d, arts, "v1", "provide-evidence");
+  check("draftProsecutor falls back to rebuttalFromTemplate with no key", template, draftResult);
+
+  // validateDraftAmounts guard checks
+  const safeText = "Rebuttal for dispute PP-D-PROS: $100.00 is disputed, plus standard fee $15.00.";
+  check("validateDraftAmounts accepts allowed dispute amounts", true, validateDraftAmounts(safeText, d, arts));
+
+  const hallucinatedText = "Rebuttal: We demand a penalty payment of $4,999.00 from buyer!";
+  check("validateDraftAmounts rejects hallucinated $ amount", false, validateDraftAmounts(hallucinatedText, d, arts));
+}
+
+// ---- Phase 1: Jury gap aggregation (union, dedup) ----
+{
+  const evidenceGaps = ["Tracking number is missing carrier name", "Delivery date unconfirmed"];
+  const policyGaps = ["Delivery date unconfirmed", "Seller protection requires proof of fulfillment"];
+  const buyerGaps = ["Buyer claims item was not received", "Tracking number is missing carrier name"];
+
+  const aggregated = aggregateJuryGaps(evidenceGaps, policyGaps, buyerGaps);
+  check("Jury aggregation produces union with duplicates removed", 4, aggregated.length);
+  check("Jury aggregation retains unique gaps", true, aggregated.includes("Tracking number is missing carrier name"));
+  check("Jury aggregation retains policy gaps", true, aggregated.includes("Seller protection requires proof of fulfillment"));
+  check("Jury aggregation retains buyer gaps", true, aggregated.includes("Buyer claims item was not received"));
+}
+
+// ---- Phase 1: Judge output shape parsing ----
+{
+  const mockJudgeResponse = `
+ISSUE_FRAMING: The decisive question is whether delivery to the transaction address can be verified through merchant records.
+
+VERDICT_REASONING: The evidence score of 85/100 fulfills tracking and post-delivery merchant log requirements. This satisfies PayPal Seller Protection standards and strongly supports the CONTEST_HARD_PROOF routing policy.
+`;
+
+  const parsed = parseJudgeOutput(mockJudgeResponse);
+  check(
+    "Judge issueFraming parsed correctly",
+    "The decisive question is whether delivery to the transaction address can be verified through merchant records.",
+    parsed.issueFraming,
+  );
+  check(
+    "Judge verdictReasoning parsed correctly",
+    "The evidence score of 85/100 fulfills tracking and post-delivery merchant log requirements. This satisfies PayPal Seller Protection standards and strongly supports the CONTEST_HARD_PROOF routing policy.",
+    parsed.verdictReasoning,
+  );
+
+  const emptyParsed = parseJudgeOutput("Unformatted text with no labels");
+  check("Judge parse returns undefined for missing labels", undefined, emptyParsed.issueFraming);
+  check("Judge parse returns undefined for missing reasoning", undefined, emptyParsed.verdictReasoning);
+}
+
+
+// ---- MiroFish learnings: thinking-block stripping ----
+{
+  const reasoningOutput = "<think>\nThinking about the merchant dispute...\nConsidering PayPal policies...\n</think>\nRebuttal v1 — Claim is contested on tracking proof.";
+  check(
+    "stripThinking removes <think>...</think> blocks",
+    "Rebuttal v1 — Claim is contested on tracking proof.",
+    stripThinking(reasoningOutput),
+  );
+
+  const multipleThinks = "<think>first thought</think>Part 1<think>second thought</think> Part 2";
+  check(
+    "stripThinking removes multiple <think> blocks",
+    "Part 1 Part 2",
+    stripThinking(multipleThinks),
+  );
+
+  const noThinking = "Plain text without any thinking tags.";
+  check(
+    "stripThinking leaves clean text unchanged",
+    "Plain text without any thinking tags.",
+    stripThinking(noThinking),
+  );
+
+  check("stripThinking handles empty string", "", stripThinking(""));
+  const markdownText = "<think>internal reasoning</think>**The decisive question** is whether __delivery__ was verified.";
+  check(
+    "stripThinking removes thinking tags and markdown bold/italic markers",
+    "The decisive question is whether delivery was verified.",
+    stripThinking(markdownText),
+  );
+}
+
+// ---- Live Swarm Phase Tracker & Seeded Dispute Integration ----
+async function swarmAndTrackerChecks(): Promise<void> {
+  loadSeed();
+
+  // Test Scenario A: PP-D-88412 (60 -> 85)
+  const disputeA = getDispute("PP-D-88412");
+  if (!disputeA) throw new Error("Seed dispute PP-D-88412 missing");
+  const runA = await runSwarm(disputeA);
+
+  check("Seeded A score progression achieves 85", 85, runA.score);
+  check("Seeded A verdict is CONTEST_HARD_PROOF", "CONTEST_HARD_PROOF", runA.verdict);
+  check("Seeded A took exactly 2 iterations (v1 rejected -> v2 accepted)", 2, runA.iterations.length);
+  check("Seeded A iteration 1 was rejected", false, runA.iterations[0].accepted);
+  check("Seeded A iteration 1 score was 60", 60, runA.iterations[0].score);
+  check("Seeded A iteration 2 was accepted", true, runA.iterations[1].accepted);
+  check("Seeded A iteration 2 score was 85", 85, runA.iterations[1].score);
+
+  // Check SwarmRun phases
+  check("runA carries phases array", true, Array.isArray(runA.phases));
+  const phasesA = runA.phases ?? [];
+  check("runA has hound_init phase", true, phasesA.some((p) => p.key === "hound_init"));
+  check("runA has prosecutor_v1 phase", true, phasesA.some((p) => p.key === "prosecutor_v1"));
+  check("runA has redteam_jury_v1 phase", true, phasesA.some((p) => p.key === "redteam_jury_v1"));
+  check("runA has dynamic hound_deep_v2 phase", true, phasesA.some((p) => p.key === "hound_deep_v2"));
+  check("runA has prosecutor_v2 phase", true, phasesA.some((p) => p.key === "prosecutor_v2"));
+  check("runA has redteam_jury_v2 phase", true, phasesA.some((p) => p.key === "redteam_jury_v2"));
+  check("runA has judge_framing phase", true, phasesA.some((p) => p.key === "judge_framing"));
+  check("runA has arbiter_routing phase", true, phasesA.some((p) => p.key === "arbiter_routing"));
+
+  // Check store progress for PP-D-88412
+  const progressA = getSwarmProgress("PP-D-88412");
+  check("Store progressA status is DONE", "DONE", progressA?.status);
+  const pPros1 = progressA?.phases.find((p) => p.key === "prosecutor_v1");
+  check("prosecutor_v1 is done in progress", "done", pPros1?.status);
+  check("prosecutor_v1 has non-null duration_ms", true, typeof pPros1?.duration_ms === "number");
+  const pPros2 = progressA?.phases.find((p) => p.key === "prosecutor_v2");
+  check("prosecutor_v2 is done in progress", "done", pPros2?.status);
+
+  // Test Scenario B: PP-D-88413 (Score 60 -> DE_ESCALATE_OFFER)
+  const disputeB = getDispute("PP-D-88413");
+  if (!disputeB) throw new Error("Seed dispute PP-D-88413 missing");
+  const runB = await runSwarm(disputeB);
+  check("Seeded B score is 60", 60, runB.score);
+  check("Seeded B verdict is DE_ESCALATE_OFFER", "DE_ESCALATE_OFFER", runB.verdict);
+  check("Seeded B took 1 iteration", 1, runB.iterations.length);
+
+  // Test Scenario C: PP-D-88414 (Score 0 -> CONCEDE_FAST_SETTLE)
+  const disputeC = getDispute("PP-D-88414");
+  if (!disputeC) throw new Error("Seed dispute PP-D-88414 missing");
+  const runC = await runSwarm(disputeC);
+  check("Seeded C score is 0", 0, runC.score);
+  check("Seeded C verdict is CONCEDE_FAST_SETTLE", "CONCEDE_FAST_SETTLE", runC.verdict);
+  check("Seeded C took 1 iteration", 1, runC.iterations.length);
+}
+
+
+// ---- Method Decisions 1-8: Deterministic Outcome Matrix, Offer Sizing, Fee Resolution & Quorum ----
+{
+  // Decision 1: Deterministic Outcome Matrix & Break-Even calculation
+  const m = evDisplay(60, 210, 15, "INQUIRY");
+  check("Outcome matrix contest_upheld_net_usd is 0", 0, m.contest_upheld_net_usd);
+  check("Outcome matrix contest_lost_cost_usd is 225", 225, m.contest_lost_cost_usd);
+  check("Outcome matrix offer_cost_usd is 84", 84, m.offer_cost_usd);
+  check("Outcome matrix offer_retained_usd is 126", 126, m.offer_retained_usd);
+  check("Outcome matrix offer_pct is 40", 40, m.offer_pct);
+  check("Outcome matrix concede_cost_usd in INQUIRY is 210", 210, m.concede_cost_usd);
+  check("Outcome matrix breakeven_win_rate_vs_offer_pct is 63%", 63, m.breakeven_win_rate_vs_offer_pct);
+
+  // Decision 3: Dynamic Offer Sizing
+  check("computeOfferPct at score 60 is 0.40", 0.4, computeOfferPct(60));
+  check("computeOfferAmount at score 60 ($210) returns $84.00", 84, computeOfferAmount(60, 210).offerUsd);
+  check("computeOfferPct at score 75 clamps to 0.28", 0.28, computeOfferPct(75));
+  check("computeOfferPct at score 35 is 0.60", 0.6, computeOfferPct(35));
+
+  // Decision 7: Fee Resolution
+  const stdFee = resolveFeeForDispute(dispute({ id: "TEST", dispute_life_cycle_stage: "INQUIRY" }));
+  check("resolveFeeForDispute default is $15", 15, stdFee.feeUsd);
+  const cbFee = resolveFeeForDispute(
+    dispute({
+      id: "TEST-CB",
+      dispute_life_cycle_stage: "CHARGEBACK",
+      raw_paypal_detail: { dispute_channel: "EXTERNAL" },
+    }),
+  );
+  check("resolveFeeForDispute external chargeback is $20", 20, cbFee.feeUsd);
+
+  // Decision 6: Quorum Tagging
+  const j1 = ["Signature missing from tracking"];
+  const j2 = ["Signature confirmation absent from courier proof", "Return policy missing"];
+  const j3 = ["Buyer demands signature receipt"];
+  const tagged = tagJuryQuorum(j1, j2, j3);
+  check("Quorum identifies signature as quorum domain", true, tagged.quorumDomains.has("signature"));
+  check("Tagged jury output contains [QUORUM 2/3+]", true, tagged.combinedGaps.some((g) => g.startsWith("[QUORUM 2/3+]")));
+  check("Tagged jury output contains [ADVISORY 1/3]", true, tagged.combinedGaps.some((g) => g.startsWith("[ADVISORY 1/3]")));
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
+  await draftNoKeyChecks();
+  await prosecutorFallbackChecks();
+  await swarmAndTrackerChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDispute, latestRun, setApproval } from "@/lib/store";
-import { actionForVerdict } from "@/lib/scorer";
+import { actionForVerdict, computeOfferAmount } from "@/lib/scorer";
 import {
   checkOfferAcceptTypes,
   resolveAction,
@@ -86,7 +86,7 @@ export async function POST(
     if (!offerAmount) {
       offerAmount = {
         currency_code: dispute.amount.currency_code,
-        value: (amount * 0.4).toFixed(2),
+        value: computeOfferAmount(run.score, amount).offerUsd.toFixed(2),
       };
     } else {
       const v = parseFloat(offerAmount.value);
