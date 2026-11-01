@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const instrumentSans = Instrument_Sans({
+const geist = Geist({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
@@ -42,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${instrumentSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
       <body className="dark-theme">{children}</body>
     </html>
   );

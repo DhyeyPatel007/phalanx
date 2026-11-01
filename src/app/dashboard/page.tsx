@@ -21,10 +21,10 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const perplexityDarkGridTheme = themeQuartz.withParams({
   backgroundColor: "#191919",
   foregroundColor: "#EDEDEA",
-  headerBackgroundColor: "#222222",
+  headerBackgroundColor: "#202020",
   headerTextColor: "#A1A1A3",
   borderColor: "rgba(255, 255, 255, 0.08)",
-  rowHoverColor: "#262626",
+  rowHoverColor: "#252525",
   selectedRowBackgroundColor: "rgba(32, 128, 141, 0.16)",
   accentColor: "#20808D",
   fontFamily: "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
@@ -35,7 +35,7 @@ const perplexityDarkGridTheme = themeQuartz.withParams({
   wrapperBorderRadius: 4,
 });
 
-type TabSection = "workbench" | "dossiers" | "charter";
+type TabSection = "disputes" | "runs" | "dossiers" | "settings";
 
 interface Row {
   id: string;
@@ -72,7 +72,7 @@ function verdictBadge(v: Verdict | null) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabSection>("workbench");
+  const [activeTab, setActiveTab] = useState<TabSection>("disputes");
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [runs, setRuns] = useState<Record<string, SwarmRun>>({});
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
@@ -155,24 +155,48 @@ export default function DashboardPage() {
       sortable: true,
       filter: true,
       cellRenderer: (p: { value: string }) => (
-        <Link href={`/disputes/${p.value}`} className="grid-link">
+        <Link href={`/disputes/${p.value}`} className="grid-link font-mono">
           {p.value}
         </Link>
       ),
     },
     { field: "reason", headerName: "Reason Code", flex: 2, sortable: true, filter: true },
-    { field: "amount", headerName: "Amount", flex: 0.9, sortable: true },
-    { field: "iterations", headerName: "Iterations", flex: 0.7, sortable: true },
+    {
+      field: "amount",
+      headerName: "Amount",
+      flex: 1.0,
+      sortable: true,
+      cellStyle: { textAlign: "right" },
+      headerClass: "ag-right-aligned-header",
+      cellRenderer: (p: { value: string }) => (
+        <span className="tabular-nums font-mono">{p.value}</span>
+      ),
+    },
+    {
+      field: "iterations",
+      headerName: "Iterations",
+      flex: 0.8,
+      sortable: true,
+      cellStyle: { textAlign: "right" },
+      headerClass: "ag-right-aligned-header",
+      cellRenderer: (p: { value: number }) => (
+        <span className="tabular-nums">{p.value}</span>
+      ),
+    },
     {
       field: "score",
       headerName: "Checklist Score",
       flex: 1.1,
       sortable: true,
+      cellStyle: { textAlign: "right" },
+      headerClass: "ag-right-aligned-header",
       cellRenderer: (p: { value: number | null }) =>
         p.value === null ? (
           <span style={{ color: "var(--text-muted)" }}>—</span>
         ) : (
-          <span className="font-mono" style={{ fontWeight: 600 }}>{p.value}/100</span>
+          <span className="tabular-nums font-mono" style={{ fontWeight: 600 }}>
+            {p.value}/100
+          </span>
         ),
     },
     {
@@ -182,44 +206,50 @@ export default function DashboardPage() {
       sortable: true,
       cellRenderer: (p: { value: Verdict | null }) => verdictBadge(p.value),
     },
-    { field: "status", headerName: "PayPal Status", flex: 1.3, sortable: true, filter: true },
+    { field: "status", headerName: "PayPal Status", flex: 1.2, sortable: true, filter: true },
     { field: "source", headerName: "Source", flex: 1.2, sortable: true, filter: true },
   ];
 
   return (
     <div>
-      {/* Slim Perplexity Dark Top Navigation Bar */}
+      {/* 12-Site Benchmark: Slim Top Bar (No Sidebar) */}
       <header className="pplx-nav">
         <div className="pplx-nav-inner">
           <div className="brand-cluster">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span className="brand-mark">P</span>
               <span>PHALANX</span>
             </Link>
             <span className="chip teal">PayPal Sandbox</span>
-            <Link href="/" className="chip" style={{ cursor: "pointer" }}>
-              ← Product Overview
-            </Link>
           </div>
 
-          <nav className="nav-links" aria-label="Workbench sections">
+          <nav className="nav-links" aria-label="Main navigation">
+            <Link href="/" className="nav-tab">
+              Overview
+            </Link>
             <button
-              className={`nav-tab ${activeTab === "workbench" ? "active" : ""}`}
-              onClick={() => setActiveTab("workbench")}
+              className={`nav-tab ${activeTab === "disputes" ? "active" : ""}`}
+              onClick={() => setActiveTab("disputes")}
             >
-              Dispute Workbench ({disputes.length})
+              Disputes ({disputes.length})
+            </button>
+            <button
+              className={`nav-tab ${activeTab === "runs" ? "active" : ""}`}
+              onClick={() => setActiveTab("runs")}
+            >
+              Swarm Runs
             </button>
             <button
               className={`nav-tab ${activeTab === "dossiers" ? "active" : ""}`}
               onClick={() => setActiveTab("dossiers")}
             >
-              Evidence Dossiers (PDF)
+              Evidence Dossiers
             </button>
             <button
-              className={`nav-tab ${activeTab === "charter" ? "active" : ""}`}
-              onClick={() => setActiveTab("charter")}
+              className={`nav-tab ${activeTab === "settings" ? "active" : ""}`}
+              onClick={() => setActiveTab("settings")}
             >
-              Safety &amp; Gate Rules
+              Settings
             </button>
           </nav>
 
@@ -230,6 +260,22 @@ export default function DashboardPage() {
             <button className="primary" onClick={seedDemo}>
               Load seeded demo
             </button>
+            <a
+              href="https://github.com/DhyeyPatel007/phalanx"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link-subtle"
+            >
+              GitHub ↗
+            </a>
+            <a
+              href="https://developer.paypal.com/docs/api/disputes/v1/"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link-subtle"
+            >
+              PayPal Docs ↗
+            </a>
           </div>
         </div>
       </header>
@@ -248,16 +294,16 @@ export default function DashboardPage() {
         {notice && <div className="callout notice">{notice}</div>}
         {error && <div className="callout error">Error: {error}</div>}
 
-        {/* 4 Quiet Perplexity Stat Cards */}
+        {/* 4 Quiet Perplexity Stat Cards (KPI Discipline: 3-5 Metrics Max, Tabular Numerals) */}
         <section className="telemetry" aria-label="Telemetry">
           <div className="tele">
             <div className="label">Total disputed volume</div>
-            <div className="value">${totalVolume.toFixed(2)}</div>
+            <div className="value tabular-nums">${totalVolume.toFixed(2)}</div>
             <div className="note">Sum of loaded dispute amounts</div>
           </div>
           <div className="tele">
             <div className="label">Capital saved by swarm</div>
-            <div className="value">${capitalSaved.toFixed(2)}</div>
+            <div className="value tabular-nums">${capitalSaved.toFixed(2)}</div>
             <div className="note">
               Counts only confirmed Sandbox executions (contested upheld or
               offer principal retained); $0 on seeded demo runs
@@ -265,7 +311,7 @@ export default function DashboardPage() {
           </div>
           <div className="tele">
             <div className="label">Dispute fees avoided</div>
-            <div className="value">${feesAvoided.toFixed(2)}</div>
+            <div className="value tabular-nums">${feesAvoided.toFixed(2)}</div>
             <div className="note">
               Default: US Standard Dispute Fee $15 (Oct 1, 2026 schedule); $0
               until a Sandbox execution succeeds
@@ -273,7 +319,7 @@ export default function DashboardPage() {
           </div>
           <div className="tele">
             <div className="label">Avg swarm resolution time</div>
-            <div className="value">
+            <div className="value tabular-nums">
               {avgRunMs === null ? "—" : `${avgRunMs} ms`}
             </div>
             <div className="note">
@@ -282,12 +328,60 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {activeTab === "runs" && (
+          <section className="pplx-card">
+            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
+              Recent Swarm Executions ({Object.keys(runs).length})
+            </h2>
+            <p className="footnote" style={{ marginBottom: 12 }}>
+              Adversarial swarm runs: Hound evidence retrieval → Prosecutor draft → 3-Juror quorum audit → Arbiter verdict.
+            </p>
+            {Object.keys(runs).length === 0 ? (
+              <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
+                No swarm runs recorded yet. Click any dispute in the ledger below to run the adversarial swarm.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.entries(runs).map(([disputeId, r]) => (
+                  <div
+                    key={disputeId}
+                    style={{
+                      padding: "10px 14px",
+                      background: "var(--bg-elevated)",
+                      border: "1px solid var(--border-hairline)",
+                      borderRadius: "var(--radius-card)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div>
+                      <span className="font-mono" style={{ fontWeight: 600, marginRight: 10 }}>
+                        {disputeId}
+                      </span>
+                      <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                        {r.iterations.length} iterations · {r.duration_ms} ms · Score: {r.score}/100
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {verdictBadge(r.verdict)}
+                      <Link href={`/disputes/${disputeId}`} className="btn" style={{ fontSize: 12, padding: "4px 10px" }}>
+                        Inspect →
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {activeTab === "dossiers" && (
           <section className="pplx-card">
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>
+            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
               5-Page PDF Evidence Dossiers (pdf-lib · SHA-256 manifest)
             </h2>
-            <p className="footnote" style={{ marginBottom: 14 }}>
+            <p className="footnote" style={{ marginBottom: 12 }}>
               Every seeded dispute carries a SIMULATED watermark on all 5 pages.
               Pre-swarm downloads include only Pass-1 fast sources.
             </p>
@@ -307,9 +401,9 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {activeTab === "charter" && (
+        {activeTab === "settings" && (
           <section className="pplx-card">
-            <h2 style={{ marginTop: 0, fontSize: 16 }}>
+            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
               Safety Gates &amp; Deterministic Scoring Charter
             </h2>
             <dl className="kv">

@@ -141,9 +141,11 @@ export default function DisputeDetailPage() {
         <header className="pplx-nav">
           <div className="pplx-nav-inner">
             <div className="brand-cluster">
-              <span className="brand-mark">P</span>
-              <span>PHALANX</span>
-              <span className="chip teal">PayPal AI Hackathon</span>
+              <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="brand-mark">P</span>
+                <span>PHALANX</span>
+              </Link>
+              <span className="chip teal">Dispute Inspector</span>
             </div>
             <Link className="btn" href="/dashboard">
               ← All disputes
@@ -166,9 +168,11 @@ export default function DisputeDetailPage() {
         <header className="pplx-nav">
           <div className="pplx-nav-inner">
             <div className="brand-cluster">
-              <span className="brand-mark">P</span>
-              <span>PHALANX</span>
-              <span className="chip teal">PayPal AI Hackathon</span>
+              <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="brand-mark">P</span>
+                <span>PHALANX</span>
+              </Link>
+              <span className="chip teal">Dispute Inspector</span>
             </div>
             <Link className="btn" href="/dashboard">
               ← All disputes
@@ -211,31 +215,65 @@ export default function DisputeDetailPage() {
 
   return (
     <div>
-      {/* Top Editorial Nav */}
+      {/* 12-Site Benchmark: Slim Top Bar */}
       <header className="pplx-nav">
         <div className="pplx-nav-inner">
           <div className="brand-cluster">
-            <span className="brand-mark">P</span>
-            <span>PHALANX</span>
-            <span className="chip teal">Dispute Inspector</span>
+            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="brand-mark">P</span>
+              <span>PHALANX</span>
+            </Link>
+            <span className="chip teal">PayPal Sandbox</span>
           </div>
+
+          <nav className="nav-links" aria-label="Main navigation">
+            <Link href="/" className="nav-tab">
+              Overview
+            </Link>
+            <Link href="/dashboard" className="nav-tab active">
+              Disputes
+            </Link>
+            <Link href="/dashboard" className="nav-tab">
+              Swarm Runs
+            </Link>
+            <Link href="/dashboard" className="nav-tab">
+              Evidence Dossiers
+            </Link>
+          </nav>
 
           <div className="actions">
             <Link className="btn" href="/dashboard">
               ← All disputes
             </Link>
-            <Link className="btn primary" href="/dashboard">
-              Workbench
-            </Link>
+            <a
+              href="https://github.com/DhyeyPatel007/phalanx"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link-subtle"
+            >
+              GitHub ↗
+            </a>
+            <a
+              href="https://developer.paypal.com/docs/api/disputes/v1/"
+              target="_blank"
+              rel="noreferrer"
+              className="nav-link-subtle"
+            >
+              PayPal Docs ↗
+            </a>
           </div>
         </div>
       </header>
 
       <main className="detail-wrap">
-        {/* Back Link */}
-        <Link href="/dashboard" className="detail-nav-back">
-          ← All disputes
-        </Link>
+        {/* Benchmark Breadcrumbs ("All disputes / PP-D-88412") + Back Link */}
+        <div className="breadcrumb-bar">
+          <Link href="/dashboard" className="breadcrumb-link">
+            All disputes
+          </Link>
+          <span className="breadcrumb-separator">/</span>
+          <span className="breadcrumb-current font-mono">{detail.dispute.id}</span>
+        </div>
 
         {notice && (
           <div className="callout notice">
@@ -321,7 +359,7 @@ export default function DisputeDetailPage() {
           )}
         </div>
 
-        {/* 3. Prominent Human Approval Gate */}
+        {/* 3. Prominent Human Approval Gate (Flat, Hairline Border, Teal Left Edge) */}
         {run && (
           <div className="approval-gate-card">
             <div className="approval-gate-header">
@@ -332,7 +370,7 @@ export default function DisputeDetailPage() {
             </div>
 
             {detail.approval ? (
-              <p style={{ margin: "4px 0", fontSize: 13.5 }}>
+              <p style={{ margin: "4px 0", fontSize: 13 }}>
                 Approved: <b>{detail.approval.action}</b>
                 {detail.approval.action === "make-offer" &&
                   detail.approval.offer_amount && (
@@ -350,7 +388,7 @@ export default function DisputeDetailPage() {
                 <span className="timestamp">{detail.approval.approved_at}</span>
               </p>
             ) : (
-              <p style={{ margin: "4px 0", fontSize: 13.5, color: "var(--text-secondary)" }}>
+              <p style={{ margin: "4px 0", fontSize: 13, color: "var(--text-secondary)" }}>
                 No approval recorded yet. Nothing executes on PayPal without explicit human approval.
               </p>
             )}
@@ -397,12 +435,12 @@ export default function DisputeDetailPage() {
           <div className="judge-card">
             <h3>Judge Framing &amp; Verdict Summary (Advisory)</h3>
             {run.issue_framing && (
-              <p style={{ margin: "0 0 8px", fontSize: 13.5, lineHeight: 1.5 }}>
+              <p style={{ margin: "0 0 8px", fontSize: 13, lineHeight: 1.5 }}>
                 <b style={{ color: "var(--text-main)" }}>Issue framing:</b> {cleanMarkdown(run.issue_framing)}
               </p>
             )}
             {run.verdict_reasoning && (
-              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5 }}>
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
                 <b style={{ color: "var(--text-main)" }}>Verdict explanation:</b> {cleanMarkdown(run.verdict_reasoning)}
               </p>
             )}
@@ -424,9 +462,9 @@ export default function DisputeDetailPage() {
                   key={a.id}
                   style={{
                     padding: "10px 14px",
-                    background: "var(--bg-elevated)",
+                    background: "var(--bg-canvas)",
                     border: "1px solid var(--border-hairline)",
-                    borderRadius: "var(--radius-md)",
+                    borderRadius: "var(--radius-card)",
                     fontSize: 13,
                   }}
                 >
@@ -579,9 +617,9 @@ export default function DisputeDetailPage() {
                 <pre
                   style={{
                     fontSize: 12,
-                    background: "var(--bg-subtle)",
+                    background: "var(--bg-canvas)",
                     padding: 12,
-                    borderRadius: "var(--radius-md)",
+                    borderRadius: "var(--radius-card)",
                     marginTop: 8,
                     border: "1px solid var(--border-hairline)",
                   }}
@@ -599,4 +637,3 @@ export default function DisputeDetailPage() {
     </div>
   );
 }
-
