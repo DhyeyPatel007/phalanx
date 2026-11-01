@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
 const geist = Geist({
@@ -30,8 +30,16 @@ const geistMono = Geist_Mono({
   ],
 });
 
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-serif",
+  display: "swap",
+  fallback: ["Georgia", "Cambria", "Times New Roman", "serif"],
+});
+
 export const metadata: Metadata = {
-  title: "PHALANX — Adversarial AI Dispute Defense for PayPal Merchants",
+  title: "PHALANX — Adversarial Dispute Defense for PayPal Merchants",
   description:
     "Open-source multi-agent dispute workbench for small PayPal merchants. Deterministic checklist scoring, 3-juror deliberation, and mandatory human approval.",
 };
@@ -42,8 +50,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
-      <body className="dark-theme">{children}</body>
+    <html
+      lang="en"
+      className={`${geist.variable} ${geistMono.variable} ${instrumentSerif.variable}`}
+    >
+      <body className="light-theme">{children}</body>
     </html>
   );
 }

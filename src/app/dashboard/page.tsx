@@ -18,21 +18,21 @@ import type {
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-const perplexityDarkGridTheme = themeQuartz.withParams({
-  backgroundColor: "#191919",
-  foregroundColor: "#EDEDEA",
-  headerBackgroundColor: "#202020",
-  headerTextColor: "#A1A1A3",
-  borderColor: "rgba(255, 255, 255, 0.08)",
-  rowHoverColor: "#252525",
-  selectedRowBackgroundColor: "rgba(32, 128, 141, 0.16)",
-  accentColor: "#20808D",
+const phalanxLightGridTheme = themeQuartz.withParams({
+  backgroundColor: "#FFFFFF",
+  foregroundColor: "#101828",
+  headerBackgroundColor: "#F9FAFB",
+  headerTextColor: "#475467",
+  borderColor: "rgba(16, 24, 40, 0.08)",
+  rowHoverColor: "#F4F6FB",
+  selectedRowBackgroundColor: "rgba(111, 61, 255, 0.08)",
+  accentColor: "#6F3DFF",
   fontFamily: "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   fontSize: 13,
-  headerFontSize: 11,
+  headerFontSize: 12,
   headerFontWeight: 600,
   borderRadius: 0,
-  wrapperBorderRadius: 4,
+  wrapperBorderRadius: 12,
 });
 
 type TabSection = "disputes" | "runs" | "dossiers" | "settings";
@@ -86,9 +86,21 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/disputes");
-      const body = await res.json();
-      setDisputes(body.disputes ?? []);
+      let res = await fetch("/api/disputes");
+      let body = await res.json();
+      let list: Dispute[] = body.disputes ?? [];
+
+      // Auto-load seeded demo scenarios on first load if the ledger is empty
+      if (list.length === 0) {
+        const seedRes = await fetch("/api/demo/seed", { method: "POST" });
+        if (seedRes.ok) {
+          res = await fetch("/api/disputes");
+          body = await res.json();
+          list = body.disputes ?? [];
+        }
+      }
+
+      setDisputes(list);
       setTelemetry(body.telemetry ?? null);
       if (body.runs && typeof body.runs === "object") {
         setRuns(body.runs);
@@ -110,11 +122,18 @@ export default function DashboardPage() {
   }, [refresh]);
 
   const seedDemo = async () => {
-    const res = await fetch("/api/demo/seed", { method: "POST" });
-    const body = await res.json();
-    setDisputes(body.disputes ?? []);
-    setNotice(`Seeded demo loaded: ${body.seeded} scenarios (SIMULATED).`);
-    await refresh();
+    setLoading(true);
+    try {
+      const res = await fetch("/api/demo/seed", { method: "POST" });
+      const body = await res.json();
+      setDisputes(body.disputes ?? []);
+      setNotice(`Seeded demo loaded: ${body.seeded} scenarios (SIMULATED).`);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const rows: Row[] = useMemo(
@@ -124,7 +143,7 @@ export default function DashboardPage() {
         return {
           id: d.id,
           reason: d.reason,
-          amount: `$${parseFloat(d.amount.value).toFixed(2)} ${d.amount.currency_code}`,
+          amount: `$${parseFloat(d.amount.value).toFixed(2)} USD`,
           iterations: run ? run.iterations.length : 0,
           score: run ? run.score : null,
           verdict: run ? run.verdict : null,
@@ -151,6 +170,7 @@ export default function DashboardPage() {
     {
       field: "id",
       headerName: "Dispute ID",
+      minWidth: 150,
       flex: 1.1,
       sortable: true,
       filter: true,
@@ -160,10 +180,18 @@ export default function DashboardPage() {
         </Link>
       ),
     },
-    { field: "reason", headerName: "Reason Code", flex: 2, sortable: true, filter: true },
+    {
+      field: "reason",
+      headerName: "Reason Code",
+      minWidth: 230,
+      flex: 1.8,
+      sortable: true,
+      filter: true,
+    },
     {
       field: "amount",
       headerName: "Amount",
+      minWidth: 130,
       flex: 1.0,
       sortable: true,
       cellStyle: { textAlign: "right" },
@@ -175,17 +203,19 @@ export default function DashboardPage() {
     {
       field: "iterations",
       headerName: "Iterations",
+      minWidth: 100,
       flex: 0.8,
       sortable: true,
       cellStyle: { textAlign: "right" },
       headerClass: "ag-right-aligned-header",
       cellRenderer: (p: { value: number }) => (
-        <span className="tabular-nums">{p.value}</span>
+        <span className="tabular-nums font-mono">{p.value}</span>
       ),
     },
     {
       field: "score",
       headerName: "Checklist Score",
+      minWidth: 130,
       flex: 1.1,
       sortable: true,
       cellStyle: { textAlign: "right" },
@@ -202,157 +232,240 @@ export default function DashboardPage() {
     {
       field: "verdict",
       headerName: "Verdict",
+      minWidth: 160,
       flex: 1.4,
       sortable: true,
       cellRenderer: (p: { value: Verdict | null }) => verdictBadge(p.value),
     },
-    { field: "status", headerName: "PayPal Status", flex: 1.2, sortable: true, filter: true },
-    { field: "source", headerName: "Source", flex: 1.2, sortable: true, filter: true },
+    {
+      field: "status",
+      headerName: "PayPal Status",
+      minWidth: 140,
+      flex: 1.2,
+      sortable: true,
+      filter: true,
+    },
+    {
+      field: "source",
+      headerName: "Source",
+      minWidth: 150,
+      flex: 1.2,
+      sortable: true,
+      filter: true,
+      cellRenderer: (p: { value: string }) => (
+        <span
+          className={`chip ${p.value.includes("Seeded") ? "sim" : ""}`}
+          style={{ fontSize: 11.5, padding: "2px 8px" }}
+        >
+          {p.value}
+        </span>
+      ),
+    },
   ];
 
   return (
     <div>
-      {/* 12-Site Benchmark: Slim Top Bar (No Sidebar) */}
-      <header className="pplx-nav">
-        <div className="pplx-nav-inner">
+      {/* Benchmark: Floating Pill Navigation */}
+      <div className="floating-nav-wrap">
+        <header className="floating-nav">
           <div className="brand-cluster">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span className="brand-mark">P</span>
               <span>PHALANX</span>
             </Link>
-            <span className="chip teal">PayPal Sandbox</span>
+            <span className="chip ultraviolet">PayPal Sandbox</span>
           </div>
 
-          <nav className="nav-links" aria-label="Main navigation">
-            <Link href="/" className="nav-tab">
+          <nav className="nav-links" aria-label="Workbench navigation">
+            <Link href="/" className="nav-link">
               Overview
             </Link>
             <button
-              className={`nav-tab ${activeTab === "disputes" ? "active" : ""}`}
+              type="button"
+              className={`nav-link ${activeTab === "disputes" ? "active" : ""}`}
               onClick={() => setActiveTab("disputes")}
             >
               Disputes ({disputes.length})
             </button>
             <button
-              className={`nav-tab ${activeTab === "runs" ? "active" : ""}`}
+              type="button"
+              className={`nav-link ${activeTab === "runs" ? "active" : ""}`}
               onClick={() => setActiveTab("runs")}
             >
-              Swarm Runs
+              Swarm Runs ({Object.keys(runs).length})
             </button>
             <button
-              className={`nav-tab ${activeTab === "dossiers" ? "active" : ""}`}
+              type="button"
+              className={`nav-link ${activeTab === "dossiers" ? "active" : ""}`}
               onClick={() => setActiveTab("dossiers")}
             >
-              Evidence Dossiers
+              Dossiers
             </button>
             <button
-              className={`nav-tab ${activeTab === "settings" ? "active" : ""}`}
+              type="button"
+              className={`nav-link ${activeTab === "settings" ? "active" : ""}`}
               onClick={() => setActiveTab("settings")}
             >
-              Settings
+              Safety Policy
             </button>
+            <Link href="/guide" className="nav-link">
+              Guide ↗
+            </Link>
           </nav>
 
-          <div className="actions">
-            <button onClick={refresh} disabled={loading}>
-              Refresh ledger
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={refresh} disabled={loading} style={{ fontSize: 13, padding: "6px 14px" }}>
+              {loading ? "Refreshing…" : "Refresh"}
             </button>
-            <button className="primary" onClick={seedDemo}>
+            <button className="primary" onClick={seedDemo} style={{ fontSize: 13, padding: "6px 14px" }}>
               Load seeded demo
             </button>
-            <a
-              href="https://github.com/DhyeyPatel007/phalanx"
-              target="_blank"
-              rel="noreferrer"
-              className="nav-link-subtle"
-            >
-              GitHub ↗
-            </a>
-            <a
-              href="https://developer.paypal.com/docs/api/disputes/v1/"
-              target="_blank"
-              rel="noreferrer"
-              className="nav-link-subtle"
-            >
-              PayPal Docs ↗
-            </a>
           </div>
-        </div>
-      </header>
+        </header>
+      </div>
 
       <main className="workbench-wrap">
         {/* Mandatory Honesty Callout — Always Visible */}
         <div className="callout simulated">
           <span>
-            <b>SIMULATED DATA</b> — seeded disputes are demo data, not real
-            buyers or transactions. Checklist scores are an internal heuristic,
-            NOT a win probability. Sandbox only; human approval is mandatory.
+            <b>SIMULATED DATA</b> — seeded disputes are demo scenarios, not real buyers or funds.
+            Checklist scores are an internal heuristic, NOT a win probability. Sandbox only; human approval is mandatory.
           </span>
-          <span className="chip sim">3 Seeded Cases</span>
+          <span className="chip sim">3 Seeded Scenarios</span>
         </div>
 
-        {notice && <div className="callout notice">{notice}</div>}
+        {notice && (
+          <div className="callout notice">
+            <span>{notice}</span>
+            <button
+              onClick={() => setNotice(null)}
+              style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {error && <div className="callout error">Error: {error}</div>}
 
-        {/* 4 Quiet Perplexity Stat Cards (KPI Discipline: 3-5 Metrics Max, Tabular Numerals) */}
-        <section className="telemetry" aria-label="Telemetry">
-          <div className="tele">
-            <div className="label">Total disputed volume</div>
-            <div className="value tabular-nums">${totalVolume.toFixed(2)}</div>
-            <div className="note">Sum of loaded dispute amounts</div>
-          </div>
-          <div className="tele">
-            <div className="label">Capital saved by swarm</div>
-            <div className="value tabular-nums">${capitalSaved.toFixed(2)}</div>
-            <div className="note">
-              Counts only confirmed Sandbox executions (contested upheld or
-              offer principal retained); $0 on seeded demo runs
+        {/* 4 Vercel-Style Usage Meter Bars (KPI Discipline) */}
+        <section className="grid-2" style={{ gap: 16 }} aria-label="Usage Meters">
+          {/* Meter 1: Total Volume */}
+          <div className="meter-card">
+            <div className="meter-header">
+              <span>TOTAL DISPUTED VOLUME</span>
+              <span className="font-mono tabular-nums">{disputes.length} Disputes Active</span>
+            </div>
+            <div className="meter-value-large tabular-nums font-mono">
+              ${totalVolume.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
+            </div>
+            <div className="meter-track">
+              <div
+                className="meter-fill"
+                style={{ width: `${Math.min(100, Math.max(15, (disputes.length / 5) * 100))}%` }}
+              />
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+              Sum of loaded dispute principal across the active ledger.
             </div>
           </div>
-          <div className="tele">
-            <div className="label">Dispute fees avoided</div>
-            <div className="value tabular-nums">${feesAvoided.toFixed(2)}</div>
-            <div className="note">
-              Default: US Standard Dispute Fee $15 (Oct 1, 2026 schedule); $0
-              until a Sandbox execution succeeds
+
+          {/* Meter 2: Capital Defended */}
+          <div className="meter-card">
+            <div className="meter-header">
+              <span>CAPITAL DEFENDED</span>
+              <span className="font-mono tabular-nums">
+                {totalVolume > 0 ? Math.round((capitalSaved / totalVolume) * 100) : 0}% Defended
+              </span>
+            </div>
+            <div className="meter-value-large tabular-nums font-mono">
+              ${capitalSaved.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
+            </div>
+            <div className="meter-track">
+              <div
+                className="meter-fill"
+                style={{
+                  width: `${totalVolume > 0 ? Math.min(100, (capitalSaved / totalVolume) * 100) : 0}%`,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+              Counts confirmed Sandbox executions; stays $0 on unexecuted demo runs.
             </div>
           </div>
-          <div className="tele">
-            <div className="label">Avg swarm resolution time</div>
-            <div className="value tabular-nums">
-              {avgRunMs === null ? "—" : `${avgRunMs} ms`}
+
+          {/* Meter 3: Dispute Fees Avoided */}
+          <div className="meter-card">
+            <div className="meter-header">
+              <span>DISPUTE FEES AVOIDED</span>
+              <span className="font-mono tabular-nums">US Standard $15/case</span>
             </div>
-            <div className="note">
-              Demo run time only — never compared to an unsourced manual figure
+            <div className="meter-value-large tabular-nums font-mono">
+              ${feesAvoided.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
+            </div>
+            <div className="meter-track">
+              <div
+                className="meter-fill"
+                style={{ width: `${Math.min(100, (feesAvoided / 45) * 100)}%` }}
+              />
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+              Oct 1, 2026 fee schedule standard basis; $0 until execution succeeds.
+            </div>
+          </div>
+
+          {/* Meter 4: Avg Swarm Duration */}
+          <div className="meter-card">
+            <div className="meter-header">
+              <span>AVG SWARM DURATION</span>
+              <span className="font-mono tabular-nums">Target &lt;2,000 ms</span>
+            </div>
+            <div className="meter-value-large tabular-nums font-mono">
+              {avgRunMs === null ? "—" : `${avgRunMs} `}
+              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>
+                {avgRunMs === null ? "" : "ms"}
+              </span>
+            </div>
+            <div className="meter-track">
+              <div
+                className="meter-fill"
+                style={{
+                  width: `${avgRunMs ? Math.min(100, Math.max(15, Math.round((avgRunMs / 2000) * 100))) : 0}%`,
+                }}
+              />
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+              Local deterministic multi-agent loop; zero unsourced manual claims.
             </div>
           </div>
         </section>
 
         {activeTab === "runs" && (
-          <section className="pplx-card">
-            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
+          <section className="card-white">
+            <h2 style={{ marginTop: 0, fontSize: 16, fontWeight: 600 }}>
               Recent Swarm Executions ({Object.keys(runs).length})
             </h2>
-            <p className="footnote" style={{ marginBottom: 12 }}>
+            <p className="footnote" style={{ marginBottom: 16 }}>
               Adversarial swarm runs: Hound evidence retrieval → Prosecutor draft → 3-Juror quorum audit → Arbiter verdict.
             </p>
             {Object.keys(runs).length === 0 ? (
-              <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-                No swarm runs recorded yet. Click any dispute in the ledger below to run the adversarial swarm.
+              <p style={{ margin: 0, fontSize: 13.5, color: "var(--text-secondary)" }}>
+                No swarm runs recorded yet. Click any dispute in the ledger below to inspect evidence and run the adversarial swarm.
               </p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {Object.entries(runs).map(([disputeId, r]) => (
                   <div
                     key={disputeId}
                     style={{
-                      padding: "10px 14px",
-                      background: "var(--bg-elevated)",
+                      padding: "12px 16px",
+                      background: "var(--bg-muted)",
                       border: "1px solid var(--border-hairline)",
                       borderRadius: "var(--radius-card)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 12,
                     }}
                   >
                     <div>
@@ -363,9 +476,9 @@ export default function DashboardPage() {
                         {r.iterations.length} iterations · {r.duration_ms} ms · Score: {r.score}/100
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                       {verdictBadge(r.verdict)}
-                      <Link href={`/disputes/${disputeId}`} className="btn" style={{ fontSize: 12, padding: "4px 10px" }}>
+                      <Link href={`/disputes/${disputeId}`} className="btn" style={{ fontSize: 12.5, padding: "5px 12px" }}>
                         Inspect →
                       </Link>
                     </div>
@@ -377,24 +490,23 @@ export default function DashboardPage() {
         )}
 
         {activeTab === "dossiers" && (
-          <section className="pplx-card">
-            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
-              5-Page PDF Evidence Dossiers (pdf-lib · SHA-256 manifest)
+          <section className="card-white">
+            <h2 style={{ marginTop: 0, fontSize: 16, fontWeight: 600 }}>
+              5-Page PDF Evidence Dossiers (pdf-lib · SHA-256 Manifest)
             </h2>
-            <p className="footnote" style={{ marginBottom: 12 }}>
-              Every seeded dispute carries a SIMULATED watermark on all 5 pages.
-              Pre-swarm downloads include only Pass-1 fast sources.
+            <p className="footnote" style={{ marginBottom: 16 }}>
+              Every seeded dispute carries an immutable SIMULATED watermark on all 5 pages. Pre-swarm downloads compile Pass-1 fast merchant sources.
             </p>
-            <div className="actions">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {disputes.map((d) => (
                 <a
                   key={d.id}
-                  className="btn"
+                  className="pdf-link"
                   href={`/api/disputes/${d.id}/evidence.pdf`}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Download {d.id} ({d.reason} · ${d.amount.value}) ↗
+                  Download {d.id} ({d.reason} · ${d.amount.value} USD) ↗
                 </a>
               ))}
             </div>
@@ -402,27 +514,29 @@ export default function DashboardPage() {
         )}
 
         {activeTab === "settings" && (
-          <section className="pplx-card">
-            <h2 style={{ marginTop: 0, fontSize: 15, fontWeight: 600 }}>
+          <section className="card-white">
+            <h2 style={{ marginTop: 0, fontSize: 16, fontWeight: 600 }}>
               Safety Gates &amp; Deterministic Scoring Charter
             </h2>
-            <dl className="kv">
+            <dl className="kv" style={{ marginTop: 16 }}>
               <dt>PayPal Environment</dt>
-              <dd>Sandbox only (api-m.sandbox.paypal.com) — zero real money</dd>
+              <dd>Sandbox only (api-m.sandbox.paypal.com) — zero real money or live buyer accounts</dd>
               <dt>Human Approval Gate</dt>
-              <dd>Mandatory before provide-evidence, make-offer, or accept-claim</dd>
+              <dd>Strictly mandatory before provide-evidence, make-offer, or accept-claim actions</dd>
               <dt>Checklist Rubric</dt>
-              <dd>Deterministic 0–100 score (30 + 15 + 15 + 25 + 15); never a win probability</dd>
+              <dd>Deterministic 0–100 score (30 + 15 + 15 + 25 + 15); never treated as a win probability</dd>
               <dt>LLM &amp; 3-Juror Layer</dt>
-              <dd>Drafts wording &amp; flags quorum gaps only; zero-key template floor</dd>
+              <dd>Drafts rebuttal wording &amp; flags quorum gaps only; zero-key template fallback guaranteed</dd>
             </dl>
           </section>
         )}
 
-        {/* AG Grid Dark Dispute Ledger */}
+        {/* AG Grid Dispute Ledger */}
         <section className="ledger-card">
           <div className="ledger-toolbar">
-            <h2>Dispute Ledger — AG Grid Community</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-ink)" }}>
+              Dispute Ledger — AG Grid Community (Light Theme)
+            </h2>
             <input
               type="search"
               className="search-input"
@@ -440,9 +554,9 @@ export default function DashboardPage() {
           </div>
 
           {disputes.length === 0 ? (
-            <div style={{ padding: 40, textAlign: "center", color: "var(--text-secondary)" }}>
-              No disputes loaded.
-              <div className="actions" style={{ justifyContent: "center", marginTop: 12 }}>
+            <div style={{ padding: 48, textAlign: "center", color: "var(--text-secondary)" }}>
+              No disputes loaded in the active ledger.
+              <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
                 <button className="primary" onClick={seedDemo}>
                   Load seeded demo
                 </button>
@@ -454,7 +568,7 @@ export default function DashboardPage() {
                 ref={gridRef}
                 rowData={rows}
                 columnDefs={columns}
-                theme={perplexityDarkGridTheme}
+                theme={phalanxLightGridTheme}
                 defaultColDef={{ resizable: true }}
                 rowSelection="single"
                 onRowClicked={(e) => e.data && router.push(`/disputes/${e.data.id}`)}
@@ -465,11 +579,10 @@ export default function DashboardPage() {
           )}
 
           <p className="ledger-footer">
-            Score = checklist score 0–100 (tracking DELIVERED 30 + delivery
-            verifiable 15 + signature 15 + merchant log 25 + invoice/terms 15).
-            Routing policy: ≥75 CONTEST_HARD_PROOF · 35–74 DE_ESCALATE_OFFER ·
-            &lt;35 CONCEDE_FAST_SETTLE. Click any dispute row or ID to open the
-            full-page adversarial debate, proof artifacts, and human approval gate.
+            <b>Deterministic Scoring Rubric:</b> 0–100 total (Tracking DELIVERED 30 + Carrier verifiable 15 + Signature 15 + Merchant log 25 + Invoice/Terms 15).
+            <br />
+            <b>Routing Policy:</b> ≥75 CONTEST_HARD_PROOF · 35–74 DE_ESCALATE_OFFER · &lt;35 CONCEDE_FAST_SETTLE.
+            Click any dispute row or ID to inspect the full-page adversarial debate, audit evidence sources, and review the Human Approval Gate.
           </p>
         </section>
       </main>
