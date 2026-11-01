@@ -15,9 +15,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PHALANX // Dispute Defense Workbench",
+  title: "PHALANX — Adversarial AI Dispute Defense for PayPal Merchants",
   description:
-    "Adversarial multi-agent dispute defense workbench for PayPal Sandbox merchants. Human approves every action.",
+    "Open-source multi-agent dispute workbench for small PayPal merchants. Deterministic checklist scoring, 3-juror deliberation, and mandatory human approval.",
 };
 
 export default function RootLayout({
