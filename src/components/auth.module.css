@@ -1,0 +1,226 @@
+/* Login / AuthGate styles. Uses the existing globals.css tokens
+   (--bg-alabaster, --text-ink, --accent-primary, --border-hairline,
+   --radius-card, --shadow-float, verdict colours). No globals edits. */
+
+.pageWrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 48px 20px;
+}
+
+.gateWrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+}
+
+.card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-white);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+  padding: 32px 30px 26px;
+}
+
+.shield {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--bg-alabaster);
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text-ink);
+}
+
+.subtitle {
+  margin: 0 0 22px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-ink);
+  margin: 0 0 6px;
+}
+
+.label + .label {
+  margin-top: 14px;
+}
+
+.input {
+  width: 100%;
+  font-size: 14px;
+  font-family: var(--font-sans), sans-serif;
+  padding: 10px 12px;
+  border: 1px solid var(--border-medium);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text-ink);
+  outline: none;
+  margin-bottom: 14px;
+}
+
+.input:focus {
+  border-color: var(--accent-primary);
+}
+
+.error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--verdict-concede-text);
+  background: var(--verdict-concede-bg);
+  border: 1px solid var(--verdict-concede-border);
+  border-radius: 8px;
+}
+
+.submit {
+  width: 100%;
+  justify-content: center;
+  padding: 11px 18px;
+}
+
+.demoBox {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px dashed var(--border-medium);
+  border-radius: 12px;
+  background: var(--bg-alabaster);
+}
+
+.demoTitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-ink);
+}
+
+.demoCreds {
+  margin: 0 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.fillBtn {
+  padding: 4px 0;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-ink);
+  cursor: pointer;
+}
+
+.fillBtn:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+.honest {
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.framing {
+  text-align: center;
+  max-width: 440px;
+}
+
+.framingTitle {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-ink);
+}
+
+.framingText {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.alreadyIn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.alreadyInTitle {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text-ink);
+}
+
+.alreadyInText {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* Navbar auth controls (imported as a CSS module by command-navbar). */
+.authCta {
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.logoutBtn {
+  font-size: 12.5px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .card {
+    padding: 26px 20px 22px;
+  }
+}
