@@ -3,7 +3,7 @@
 // Exits non-zero on any failure. No server, no live PayPal calls.
 
 import { PDFDocument } from "pdf-lib";
-import { artifactsFromDetail } from "../src/lib/ingest";
+import { artifactsFromDetail, ingestVerifiedEvent } from "../src/lib/ingest";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
 import { computeOfferAmount, computeOfferPct, evDisplay, resolveFeeForDispute, scoreDispute } from "../src/lib/scorer";
 import { draft, getProviderConfig, PROVIDER_REGISTRY, stripThinking } from "../src/lib/llm";
@@ -17,6 +17,7 @@ import {
   validateDraftAmounts,
 } from "../src/lib/swarm";
 import { getDispute, getSwarmProgress, loadSeed } from "../src/lib/store";
+import { stageGate } from "../src/lib/arbiter";
 import type { Dispute, EvidenceArtifact, SwarmRun } from "../src/lib/types";
 import {
   CANONICAL_GAPS,
@@ -32,6 +33,11 @@ import {
 import {
   addAttachedEvidence,
   clearAttachedEvidence,
+  getApproval,
+  getArtifacts,
+  getAttachedEvidence,
+  setApproval,
+  upsertDispute,
 } from "../src/lib/store";
 import type { AttachedEvidence, ChecklistItem } from "../src/lib/types";
 
@@ -560,12 +566,119 @@ async function practicalReasoningAndEvidenceChecks(): Promise<void> {
   check("PDF with 0 attached files maintains exactly 5 pages", 5, loadedWithoutAttached.getPageCount());
 }
 
+// ---- Webhook UPDATED / RESOLVED handling (production-ready) ----
+// Runs WITHOUT PayPal credentials: seeded rows only, direct
+// ingestVerifiedEvent calls. Must run last: it mutates seeded B's status
+// (and restores it) and records a test approval on B.
+async function webhookUpdateChecks(): Promise<void> {
+  loadSeed();
+  const seedB = getDispute("PP-D-88413");
+  if (!seedB) throw new Error("Seed dispute PP-D-88413 missing for webhook checks");
+  const artifactsBefore = getArtifacts("PP-D-88413").length;
+  const attachedBefore = getAttachedEvidence("PP-D-88413").length;
+  setApproval({
+    id: "appr-webhook-test",
+    dispute_id: "PP-D-88413",
+    action: "make-offer",
+    approved_by: "merchant-test",
+    approved_at: new Date().toISOString(),
+    run_id: "run-webhook-test",
+  });
+
+  // UPDATED on a seeded row: status + stage + allowed_actions from resource.
+  const upd = await ingestVerifiedEvent({
+    id: "evt-webhook-upd-1",
+    event_type: "CUSTOMER.DISPUTE.UPDATED",
+    resource: {
+      dispute_id: "PP-D-88413",
+      status: "UNDER_REVIEW",
+      dispute_life_cycle_stage: "CLAIM",
+      dispute_state: "OPEN_INQUIRIES",
+      links: [{ rel: "send-message" }],
+    },
+  });
+  check("UPDATED returns ok", true, upd.ok);
+  const afterUpd = getDispute("PP-D-88413")!;
+  check("UPDATED applies status from resource", "UNDER_REVIEW", afterUpd.status);
+  check("UPDATED applies life cycle stage from resource", "CLAIM", afterUpd.dispute_life_cycle_stage);
+  check("UPDATED applies allowed_actions from resource links", "send-message", afterUpd.allowed_actions.join(","));
+  check("UPDATED preserves merchant evidence", artifactsBefore, getArtifacts("PP-D-88413").length);
+  check("UPDATED preserves attached evidence", attachedBefore, getAttachedEvidence("PP-D-88413").length);
+  check("UPDATED preserves human approval", "make-offer", getApproval("PP-D-88413")?.action);
+
+  // Duplicate UPDATED with the same event id dedupes.
+  const dup = await ingestVerifiedEvent({
+    id: "evt-webhook-upd-1",
+    event_type: "CUSTOMER.DISPUTE.UPDATED",
+    resource: { dispute_id: "PP-D-88413", status: "WAITING_FOR_SELLER_RESPONSE" },
+  });
+  check("Duplicate UPDATED is ignored", "duplicate", dup.ignored);
+  check("Duplicate UPDATED leaves status unchanged", "UNDER_REVIEW", getDispute("PP-D-88413")!.status);
+
+  // UPDATED for an unknown dispute never creates a row.
+  const unknown = await ingestVerifiedEvent({
+    id: "evt-webhook-upd-2",
+    event_type: "CUSTOMER.DISPUTE.UPDATED",
+    resource: { dispute_id: "PP-D-99999", status: "UNDER_REVIEW" },
+  });
+  check("UPDATED unknown dispute is ignored", "unknown dispute", unknown.ignored);
+  check("UPDATED unknown dispute creates no row", undefined, getDispute("PP-D-99999"));
+
+  // Malformed events are ignored, never crash.
+  const noResource = await ingestVerifiedEvent({ id: "evt-webhook-bad-1", event_type: "CUSTOMER.DISPUTE.UPDATED" });
+  check("UPDATED with no resource is ignored", "no resource", noResource.ignored);
+  const noId = await ingestVerifiedEvent({
+    id: "evt-webhook-bad-2",
+    event_type: "CUSTOMER.DISPUTE.RESOLVED",
+    resource: { status: "RESOLVED" },
+  });
+  check("RESOLVED with no dispute id is ignored", "no dispute id in resource", noId.ignored);
+  const unknownType = await ingestVerifiedEvent({
+    id: "evt-webhook-bad-3",
+    event_type: "CUSTOMER.DISPUTE.SOMETHING_ELSE",
+    resource: { dispute_id: "PP-D-88413" },
+  });
+  check("Unknown event type is ignored", "not a dispute-created event", unknownType.ignored);
+
+  // RESOLVED: outcome recorded, allowed_actions cleared, Execute locked.
+  const res = await ingestVerifiedEvent({
+    id: "evt-webhook-res-1",
+    event_type: "CUSTOMER.DISPUTE.RESOLVED",
+    resource: {
+      dispute_id: "PP-D-88413",
+      status: "RESOLVED",
+      dispute_state: "RESOLVED",
+      dispute_outcome: { outcome_code: "RESOLVED_BUYER_FAVOUR" },
+    },
+  });
+  check("RESOLVED returns ok", true, res.ok);
+  const afterRes = getDispute("PP-D-88413")!;
+  check("RESOLVED applies status", "RESOLVED", afterRes.status);
+  check("RESOLVED records outcome code", "RESOLVED_BUYER_FAVOUR", afterRes.resolution?.outcome);
+  check("RESOLVED records audit timestamp", true, typeof afterRes.resolution?.resolved_at === "string" && afterRes.resolution!.resolved_at.length > 0);
+  check("RESOLVED clears allowed_actions", 0, afterRes.allowed_actions.length);
+  check("RESOLVED fails stageGate (Execute lock 1)", false, stageGate(afterRes).ok);
+  check("RESOLVED cleared actions block Execute (lock 2)", false, afterRes.allowed_actions.includes("make-offer"));
+  check("RESOLVED preserves human approval log", "make-offer", getApproval("PP-D-88413")?.action);
+
+  // Restore seeded B so later runs start from the shipped baseline.
+  const restored = getDispute("PP-D-88413")!;
+  restored.status = "WAITING_FOR_SELLER_RESPONSE";
+  restored.dispute_life_cycle_stage = "INQUIRY";
+  restored.dispute_state = "REQUIRED_ACTION";
+  restored.allowed_actions = ["provide-evidence", "make-offer", "accept-claim", "send-message"];
+  delete restored.resolution;
+  upsertDispute(restored);
+  check("Seeded B restored after webhook checks", "WAITING_FOR_SELLER_RESPONSE", getDispute("PP-D-88413")!.status);
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
   await draftNoKeyChecks();
   await prosecutorFallbackChecks();
   await swarmAndTrackerChecks();
   await practicalReasoningAndEvidenceChecks();
+  await webhookUpdateChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }

@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavPill, useSpotlight } from "@/lib/ui-effects";
 
 export default function LandingPage() {
   const router = useRouter();
+  const navRef = useRef<HTMLElement | null>(null);
+  useNavPill(navRef);
+  useSpotlight();
   const [disputeInput, setDisputeInput] = useState("");
   const [inputNotice, setInputNotice] = useState<string | null>(null);
   const [selectedCase, setSelectedCase] = useState<"A" | "B" | "C">("A");
@@ -50,10 +54,11 @@ export default function LandingPage() {
               <span className="brand-mark">P</span>
               <span style={{ fontWeight: 700 }}>PHALANX</span>
             </Link>
-            <span className="chip ultraviolet">PayPal Sandbox</span>
+            <span className="chip obsidian">PayPal Sandbox</span>
           </div>
 
-          <nav className="nav-links" aria-label="Landing navigation">
+          <nav className="nav-links" aria-label="Landing navigation" ref={navRef}>
+            <span className="nav-pill" aria-hidden="true" />
             <a href="#product" className="nav-link">
               Product
             </a>
@@ -80,13 +85,13 @@ export default function LandingPage() {
         {/* 2. Hero — Prompt-First (Perplexity / Retool) */}
         <section className="hero-wrap" id="product">
           <div className="hero-eyebrow">
-            <span className="tabular-nums font-mono" style={{ fontWeight: 600, color: "var(--accent-ultraviolet)" }}>
+            <span className="tabular-nums font-mono" style={{ fontWeight: 600, color: "var(--accent-primary)" }}>
               ${totalVolumeUsd.toFixed(2)} USD
             </span>{" "}
             at stake across 3 live demo cases · Fee basis: US Standard Dispute Fee $15
           </div>
 
-          <h1 className="hero-h1 display-serif">
+          <h1 className="hero-h1 display-sans">
             <span className="headline-ink">Disputes defended before PayPal acts.</span>{" "}
             <span className="headline-fade">Deterministic proof, jury audit, human approval gate.</span>
           </h1>
@@ -151,13 +156,13 @@ export default function LandingPage() {
 
             {/* KPI Row */}
             <div className="grid-3" style={{ marginBottom: 20 }}>
-              <div style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
+              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Total Volume</div>
                 <div className="font-mono tabular-nums" style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: "var(--text-ink)" }}>$785.00 USD</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>3 Seeded PayPal Cases</div>
               </div>
 
-              <div style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
+              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Deterministic Score</div>
                 <div className="font-mono tabular-nums" style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: heroPass === 2 ? "var(--verdict-contest-text)" : "var(--verdict-offer-text)" }}>
                   {heroPass === 1 ? "60 / 100" : "85 / 100"}
@@ -167,9 +172,9 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
+              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Human Approval Gate</div>
-                <div style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: "var(--accent-ultraviolet)" }}>
+                <div style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: "var(--accent-primary)" }}>
                   MANDATORY
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Zero Autonomous PayPal Calls</div>
@@ -220,16 +225,16 @@ export default function LandingPage() {
           {/* 4. Proof Strip */}
           <div className="proof-strip">
             <span className="proof-item">
-              <span style={{ color: "var(--accent-ultraviolet)" }}>✓</span> PayPal Sandbox API Verified
+              <span style={{ color: "var(--accent-primary)" }}>✓</span> PayPal Sandbox API Verified
             </span>
             <span className="proof-item">
-              <span style={{ color: "var(--accent-ultraviolet)" }}>✓</span> MIT Open Source
+              <span style={{ color: "var(--accent-primary)" }}>✓</span> MIT Open Source
             </span>
             <span className="proof-item">
-              <span style={{ color: "var(--accent-ultraviolet)" }}>✓</span> Human Approves Every Action
+              <span style={{ color: "var(--accent-primary)" }}>✓</span> Human Approves Every Action
             </span>
             <span className="proof-item">
-              <span style={{ color: "var(--accent-ultraviolet)" }}>✓</span> Zero Predicted Win Odds (Deterministic Only)
+              <span style={{ color: "var(--accent-primary)" }}>✓</span> Zero Predicted Win Odds (Deterministic Only)
             </span>
           </div>
         </section>
@@ -238,7 +243,7 @@ export default function LandingPage() {
         <section className="section-white" id="swarm">
           <div className="section-container">
             <div className="skeleton-header">
-              <h2 className="section-h2 display-serif">
+              <h2 className="section-h2 display-sans">
                 <span className="headline-ink">Four agents in debate.</span>{" "}
                 <span className="headline-fade">One deterministic verdict.</span>
               </h2>
@@ -249,24 +254,28 @@ export default function LandingPage() {
 
             <div className="skeleton-visual">
               <div className="swarm-grid">
-                <div className="swarm-step-card">
+                <div className="swarm-step-card spotlight lift">
                   <span className="swarm-step-tag">Step 1 · Ingest</span>
                   <h3 className="swarm-step-title">Hound</h3>
+                  <span className="step-tip">Retrieves tracking, invoices and merchant logs — never invents an artifact.</span>
                   <p className="swarm-step-role">Gathers carrier tracking, signed receipts, and order invoices. Re-fetches deep records if jurors name proof gaps.</p>
                 </div>
-                <div className="swarm-step-card">
+                <div className="swarm-step-card spotlight lift">
                   <span className="swarm-step-tag">Step 2 · Draft</span>
                   <h3 className="swarm-step-title">Prosecutor</h3>
+                  <span className="step-tip">Drafts the rebuttal strictly from verifiable artifacts.</span>
                   <p className="swarm-step-role">Drafts factual rebuttal letters tied strictly to verifiable artifacts. Never invents facts or hallucinates dollar figures.</p>
                 </div>
-                <div className="swarm-step-card">
+                <div className="swarm-step-card spotlight lift">
                   <span className="swarm-step-tag">Step 3 · Audit</span>
                   <h3 className="swarm-step-title">3-Juror Jury</h3>
+                  <span className="step-tip">Evidence, Policy and Buyer-Sympathy jurors audit the draft; a 2/3 quorum names the gaps.</span>
                   <p className="swarm-step-role">Evidence Juror, Policy Juror, and Buyer-Sympathy Juror critique the draft in parallel, enforcing a 2/3 quorum on named gaps.</p>
                 </div>
-                <div className="swarm-step-card">
+                <div className="swarm-step-card spotlight lift">
                   <span className="swarm-step-tag">Step 4 · Route</span>
                   <h3 className="swarm-step-title">Arbiter</h3>
+                  <span className="step-tip">Routes fight, offer or concede from the deterministic 0–100 score.</span>
                   <p className="swarm-step-role">Evaluates deterministic checklist score (0–100). Routes provide-evidence (≥75), make-offer (35–74), or accept-claim (&lt;35).</p>
                 </div>
               </div>
@@ -296,10 +305,10 @@ export default function LandingPage() {
         </section>
 
         {/* 6. Demo Cases — Expandable Cards (Stripe) */}
-        <section className="section-glacier" id="demo-cases">
+        <section className="section-alabaster" id="demo-cases">
           <div className="section-container">
             <div className="skeleton-header">
-              <h2 className="section-h2 display-serif">
+              <h2 className="section-h2 display-sans">
                 <span className="headline-ink">Three real scenarios.</span>{" "}
                 <span className="headline-fade">Transparent routing.</span>
               </h2>
@@ -311,7 +320,7 @@ export default function LandingPage() {
             <div className="skeleton-visual">
               <div className="grid-3" style={{ marginBottom: 24 }}>
                 <div
-                  className={`demo-card ${selectedCase === "A" ? "active" : ""}`}
+                  className={`demo-card spotlight lift ${selectedCase === "A" ? "active" : ""}`}
                   onClick={() => setSelectedCase("A")}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -322,13 +331,13 @@ export default function LandingPage() {
                   <p style={{ margin: 0, fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Item Not Received. Pass 1 rejected (60/100). Pass 2 fetches merchant communication log and accepts at 85/100.
                   </p>
-                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-ultraviolet)" }}>
+                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-primary)" }}>
                     Action: provide-evidence →
                   </div>
                 </div>
 
                 <div
-                  className={`demo-card ${selectedCase === "B" ? "active" : ""}`}
+                  className={`demo-card spotlight lift ${selectedCase === "B" ? "active" : ""}`}
                   onClick={() => setSelectedCase("B")}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -339,13 +348,13 @@ export default function LandingPage() {
                   <p style={{ margin: 0, fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Significantly Not As Described. Score 60/100. Sized to 40% partial refund ($84.00 USD) in Inquiry to waive $15 fee.
                   </p>
-                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-ultraviolet)" }}>
+                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-primary)" }}>
                     Action: make-offer ($84.00 USD) →
                   </div>
                 </div>
 
                 <div
-                  className={`demo-card ${selectedCase === "C" ? "active" : ""}`}
+                  className={`demo-card spotlight lift ${selectedCase === "C" ? "active" : ""}`}
                   onClick={() => setSelectedCase("C")}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -356,7 +365,7 @@ export default function LandingPage() {
                   <p style={{ margin: 0, fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Lost package confirmed by carrier tracking (0/100). Concedes immediately to save $15 fee. Directs to carrier insurance.
                   </p>
-                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-ultraviolet)" }}>
+                  <div style={{ marginTop: "auto", fontSize: 12.5, fontWeight: 600, color: "var(--accent-primary)" }}>
                     Action: accept-claim →
                   </div>
                 </div>
@@ -415,7 +424,7 @@ export default function LandingPage() {
         <section className="section-white" id="outcome-math">
           <div className="section-container">
             <div className="skeleton-header">
-              <h2 className="section-h2 display-serif">
+              <h2 className="section-h2 display-sans">
                 <span className="headline-ink">Deterministic balance sheet.</span>{" "}
                 <span className="headline-fade">No win-rate illusions.</span>
               </h2>
@@ -448,7 +457,7 @@ export default function LandingPage() {
                     <dt>Contest (Lost)</dt>
                     <dd className="font-mono tabular-nums">-$225.00 USD ($210 claim + $15 fee)</dd>
                     <dt>Break-Even Win Rate</dt>
-                    <dd className="font-mono tabular-nums" style={{ fontWeight: 700, color: "var(--accent-ultraviolet)" }}>
+                    <dd className="font-mono tabular-nums" style={{ fontWeight: 700, color: "var(--accent-primary)" }}>
                       63% External Win Odds
                     </dd>
                     <dt>Formula Truth</dt>
@@ -469,10 +478,10 @@ export default function LandingPage() {
         </section>
 
         {/* 8. How-To — Docs as a First-Class Surface (Mintlify) */}
-        <section className="section-glacier" id="how-it-works">
+        <section className="section-alabaster" id="how-it-works">
           <div className="section-container">
             <div className="skeleton-header">
-              <h2 className="section-h2 display-serif">
+              <h2 className="section-h2 display-sans">
                 <span className="headline-ink">Defend disputes in minutes.</span>{" "}
                 <span className="headline-fade">Three strict steps.</span>
               </h2>
@@ -484,7 +493,7 @@ export default function LandingPage() {
             <div className="skeleton-visual">
               <div className="grid-3" style={{ marginBottom: 24 }}>
                 <div style={{ padding: 22, background: "#ffffff", borderRadius: "var(--radius-card)", border: "1px solid var(--border-hairline)" }}>
-                  <span className="chip ultraviolet" style={{ marginBottom: 10 }}>Step 1</span>
+                  <span className="chip obsidian" style={{ marginBottom: 10 }}>Step 1</span>
                   <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 600 }}>Connect Sandbox API</h3>
                   <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Enter your PayPal Developer credentials or test immediately with pre-loaded seeded disputes. No API keys required for demo mode.
@@ -492,7 +501,7 @@ export default function LandingPage() {
                 </div>
 
                 <div style={{ padding: 22, background: "#ffffff", borderRadius: "var(--radius-card)", border: "1px solid var(--border-hairline)" }}>
-                  <span className="chip ultraviolet" style={{ marginBottom: 10 }}>Step 2</span>
+                  <span className="chip obsidian" style={{ marginBottom: 10 }}>Step 2</span>
                   <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 600 }}>Run Adversarial Swarm</h3>
                   <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Hound extracts merchant records. Prosecutor drafts the rebuttal. Red-Team jury audits missing proof and Arbiter calculates break-even math.
@@ -500,7 +509,7 @@ export default function LandingPage() {
                 </div>
 
                 <div style={{ padding: 22, background: "#ffffff", borderRadius: "var(--radius-card)", border: "1px solid var(--border-hairline)" }}>
-                  <span className="chip ultraviolet" style={{ marginBottom: 10 }}>Step 3</span>
+                  <span className="chip obsidian" style={{ marginBottom: 10 }}>Step 3</span>
                   <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 600 }}>Review &amp; Approve Gate</h3>
                   <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                     Inspect the 5-page PDF dossier and Judge framing. Click Approve to authorize provide-evidence, make-offer, or accept-claim on PayPal.
@@ -509,7 +518,7 @@ export default function LandingPage() {
               </div>
 
               <div style={{ textAlign: "center", padding: "16px", background: "var(--bg-muted)", borderRadius: "var(--radius-tag)" }}>
-                <Link href="/guide" style={{ fontSize: 14.5, fontWeight: 600, color: "var(--accent-ultraviolet)" }}>
+                <Link href="/guide" style={{ fontSize: 14.5, fontWeight: 600, color: "var(--accent-primary)" }}>
                   Read the Complete Integration &amp; Runbook Guide →
                 </Link>
               </div>

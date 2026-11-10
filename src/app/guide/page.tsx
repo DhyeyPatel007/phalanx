@@ -11,7 +11,7 @@ export default function GuidePage() {
               <span className="brand-mark">P</span>
               <span style={{ fontWeight: 700 }}>PHALANX</span>
             </Link>
-            <span className="chip ultraviolet">PayPal Sandbox</span>
+            <span className="chip obsidian">PayPal Sandbox</span>
           </div>
 
           <nav className="nav-links" aria-label="Documentation navigation">
@@ -38,7 +38,7 @@ export default function GuidePage() {
         {/* Document Header */}
         <div style={{ marginBottom: 48, textAlign: "left" }}>
           <div className="hero-eyebrow">Documentation · Implementation Runbook</div>
-          <h1 className="hero-h1 display-serif" style={{ margin: "12px 0 16px", textAlign: "left" }}>
+          <h1 className="hero-h1 display-sans" style={{ margin: "12px 0 16px", textAlign: "left" }}>
             <span className="headline-ink">Step-by-step defense guide.</span>{" "}
             <span className="headline-fade">From PayPal Sandbox setup to human-approved execution.</span>
           </h1>
@@ -196,7 +196,7 @@ PHALANX_BASE_URL=http://localhost:3100 node scripts/negative-tests.mjs`}
 
         {/* Call to Action */}
         <div style={{ textAlign: "center", padding: "48px 24px", background: "#ffffff", borderRadius: "var(--radius-card)", border: "1px solid var(--border-hairline)" }}>
-          <h2 className="display-serif" style={{ margin: "0 0 12px", fontSize: 28 }}>
+          <h2 className="display-sans" style={{ margin: "0 0 12px", fontSize: 28 }}>
             Ready to inspect the live workbench?
           </h2>
           <p style={{ color: "var(--text-secondary)", margin: "0 0 24px", fontSize: 16 }}>

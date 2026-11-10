@@ -28,6 +28,10 @@ export interface Dispute {
   };
   raw_paypal_detail: Record<string, unknown> | null;
   created_at: string;
+  /** Final resolution recorded from CUSTOMER.DISPUTE.RESOLVED (webhook).
+   *  `outcome` is the PayPal outcome code when the event carries one
+   *  (e.g. RESOLVED_BUYER_FAVOUR), else the literal "RESOLVED". */
+  resolution?: { outcome: string; resolved_at: string };
 }
 
 export type EvidenceKind =
