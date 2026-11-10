@@ -1,0 +1,891 @@
+/* PHALANX premium landing — landing-only styles (CSS Module).
+   Reuses the Gemini palette tokens + global classes (.btn, .badge,
+   .score-gauge, .display-sans, .font-mono) from globals.css; nothing
+   here overrides a global. One different animation per section, all
+   transform/opacity only. Reduced-motion + narrow screens get the
+   static fallbacks (see the JS branches in the components). */
+
+/* ---------- shared ---------- */
+.sectionPad {
+  padding: 96px 24px;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.h2 {
+  font-size: clamp(2rem, 3.2vw, 2.7rem);
+  font-weight: 650;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+  margin: 0 0 16px;
+}
+
+.lede {
+  font-size: 16.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 620px;
+}
+
+/* ---------- hero mockup (parallax + scrub) ---------- */
+.mockupPerspective {
+  perspective: 1400px;
+  max-width: 1020px;
+  margin: 56px auto 0;
+}
+
+.mockupFrame {
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  text-align: left;
+  will-change: transform;
+}
+
+.mockupChrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--bg-muted);
+}
+
+.chromeDot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.16);
+  flex: 0 0 auto;
+}
+
+.chromeDot:first-child {
+  background: rgba(244, 63, 94, 0.55);
+}
+
+.chromeDot:nth-child(2) {
+  background: rgba(245, 158, 11, 0.55);
+}
+
+.chromeDot:nth-child(3) {
+  background: rgba(16, 185, 129, 0.55);
+}
+
+.chromeUrl {
+  flex: 1;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  padding: 4px 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mockupBody {
+  padding: 20px 20px 16px;
+}
+
+.mockupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.mockupTitle {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-ink);
+  margin: 0;
+}
+
+.mockupMeta {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.queueHead,
+.queueRow {
+  display: grid;
+  grid-template-columns: 1.5fr 1.6fr 0.8fr 0.9fr 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.queueHead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.queueRow {
+  border-bottom: 1px solid var(--border-hairline);
+  border-radius: var(--radius-tag);
+  transition: background-color 0.15s ease;
+}
+
+a.queueRow:hover {
+  background: var(--bg-hover);
+}
+
+.queueRow:last-child {
+  border-bottom: none;
+}
+
+.queueId {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueReason {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  /* The reason enum is one long token (MERCHANDISE_OR_SERVICE_NOT_RECEIVED)
+     — it must wrap mid-token instead of truncating with an ellipsis. */
+  overflow-wrap: anywhere;
+}
+
+.queueAmount {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.queueScore {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queueScoreNum {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.queueMiniBar {
+  flex: 1;
+  height: 5px;
+  min-width: 28px;
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.queueMiniFill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent-primary);
+}
+
+.queueMiniFill.contest {
+  background: #10b981;
+}
+
+.queueMiniFill.offer {
+  background: #f59e0b;
+}
+
+.queueMiniFill.concede {
+  background: #f43f5e;
+}
+
+.queueVerdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.queueFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.queueFoot a {
+  font-weight: 600;
+  color: var(--text-ink);
+}
+
+.queueFoot a:hover {
+  text-decoration: underline;
+}
+
+.skeletonRow {
+  height: 44px;
+  border-radius: var(--radius-tag);
+  margin-bottom: 8px;
+}
+
+.mockupEmpty {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ---------- marquee ---------- */
+.marqueeBand {
+  border-top: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+  background: #ffffff;
+  padding: 18px 0;
+}
+
+.marqueeItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 28px;
+  margin-right: 28px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.marqueeItem::after {
+  content: "✦";
+  color: var(--text-fade);
+  font-size: 12px;
+}
+
+/* ---------- scrollytelling swarm ---------- */
+.scrolly {
+  height: 420vh;
+  background: #ffffff;
+}
+
+.scrollySticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding: 80px 24px 48px;
+}
+
+.scrollyInner {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.scrollyGrid {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.stageList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stageListItem {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 2px solid var(--border-hairline);
+  border-radius: 0;
+  padding: 10px 0 10px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.stageListItem:hover {
+  color: var(--text-ink);
+}
+
+.stageListItemActive {
+  color: var(--text-ink);
+  font-weight: 650;
+  border-left-color: var(--accent-primary);
+}
+
+.stageListNum {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stagePanel {
+  min-height: 190px;
+}
+
+.stagePanelInner {
+  animation: stage-in 0.45s var(--ease-spring) both;
+}
+
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stageCount {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.stageName {
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 8px 0 12px;
+}
+
+.stageRole {
+  font-size: 16.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 560px;
+}
+
+.stageDots {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.stageDot {
+  width: 28px;
+  height: 4px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(15, 23, 42, 0.12);
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.stageDotActive {
+  background: var(--accent-primary);
+}
+
+.scrollyViz {
+  margin-top: 4px;
+}
+
+/* Static fallback (reduced motion / narrow): all stages listed. */
+.scrollyStatic {
+  background: #ffffff;
+  padding: 96px 24px;
+}
+
+.staticStageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.staticStageCard {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: 20px;
+}
+
+.staticStageCard h3 {
+  margin: 4px 0 8px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.staticStageCard p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ---------- horizontal feature strip ---------- */
+.hWrap {
+  height: 320vh;
+}
+
+.hSticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 32px;
+  padding: 80px 0;
+}
+
+.hHead {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 24px;
+}
+
+.hTrack {
+  display: flex;
+  gap: 20px;
+  padding: 4px 8vw;
+  will-change: transform;
+}
+
+.hCard {
+  flex: 0 0 400px;
+  max-width: 86vw;
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 260px;
+}
+
+.hCardTag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hCard h3 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.hCard p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  flex: 1;
+}
+
+.hCardNum {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-fade);
+}
+
+.hHint {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Vertical-stack fallback (narrow / reduced motion). */
+.hStack {
+  padding: 96px 24px;
+}
+
+.hStackTrack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 32px auto 0;
+}
+
+.hStackTrack .hCard {
+  flex: none;
+  max-width: none;
+  min-height: 0;
+}
+
+/* ---------- stat band ---------- */
+.statBand {
+  background: #ffffff;
+  border-top: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.statCard {
+  background: var(--bg-alabaster);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 168px;
+}
+
+.statValue {
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--text-ink);
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.statSub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ---------- sticky stacking proof cards ---------- */
+.stackWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.stackCard {
+  position: sticky;
+  top: calc(84px + var(--stack-i, 0) * 28px);
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 340px;
+}
+
+.stackAccent {
+  height: 6px;
+  border-radius: 16px 16px 0 0;
+  background: var(--accent-primary);
+  margin: -28px -28px 0;
+}
+
+.stackAccent.contest {
+  background: #10b981;
+}
+
+.stackAccent.offer {
+  background: #f59e0b;
+}
+
+.stackAccent.concede {
+  background: #f43f5e;
+}
+
+.stackTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stackCase {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stackBody {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.stackAmount {
+  font-size: clamp(2.2rem, 4vw, 3rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 4px 0 8px;
+}
+
+.stackId {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.stackReason {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 10px 0 0;
+  word-break: break-word;
+}
+
+.stackScoreNum {
+  font-size: clamp(2.2rem, 4vw, 3rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.stackScoreOf {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.stackVerdictRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.stackLink {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.stackLink:hover {
+  text-decoration: underline;
+}
+
+.stackNote {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 24px 0 0;
+}
+
+/* ---------- audit band ---------- */
+.auditCard {
+  background: #ffffff;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.auditCard h3 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.auditCard p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  max-width: 640px;
+}
+
+/* ---------- final CTA ---------- */
+.ctaSection {
+  text-align: center;
+  padding: 120px 24px;
+}
+
+.ctaH2 {
+  font-size: clamp(2.2rem, 4vw, 3.4rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  margin: 0 auto 16px;
+  max-width: 760px;
+}
+
+.ctaSub {
+  font-size: 16.5px;
+  color: var(--text-secondary);
+  margin: 0 auto 36px;
+  max-width: 560px;
+  line-height: 1.55;
+}
+
+.ctaBtn {
+  padding: 14px 30px;
+  font-size: 16px;
+}
+
+.ctaSecondary {
+  display: block;
+  margin-top: 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.ctaSecondary:hover {
+  color: var(--text-ink);
+  text-decoration: underline;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 960px) {
+  .scrollyGrid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .stagePanel {
+    min-height: 150px;
+  }
+
+  .staticStageGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stackBody {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 767px) {
+  .sectionPad {
+    padding: 64px 20px;
+  }
+
+  .queueHead {
+    display: none;
+  }
+
+  .queueRow {
+    grid-template-columns: 1.4fr 0.8fr 1fr;
+    row-gap: 6px;
+  }
+
+  .queueReason,
+  .queueScore {
+    display: none;
+  }
+
+  .hWrap {
+    height: auto;
+  }
+
+  .hSticky {
+    position: static;
+    height: auto;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .hTrack {
+    flex-direction: column;
+    padding: 0;
+    transform: none !important;
+  }
+
+  .hCard {
+    flex: none;
+    max-width: none;
+    min-height: 0;
+  }
+
+  .scrolly {
+    height: auto;
+  }
+
+  .scrollySticky {
+    position: static;
+    height: auto;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .statGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .statCard {
+    min-height: 0;
+  }
+
+  .stackCard {
+    top: 76px;
+  }
+}

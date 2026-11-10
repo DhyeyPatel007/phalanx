@@ -8,6 +8,8 @@ import Link from "next/link";
 import CommandNavbar from "@/components/command-navbar";
 import BentoKpis from "@/components/bento-kpis";
 import DisputeQueue from "@/components/dispute-queue";
+import AuditLog from "@/components/audit-log";
+import styles from "@/components/dashboard.module.css";
 import { useLedger } from "@/lib/use-ledger";
 import type { Verdict } from "@/lib/types";
 
@@ -61,7 +63,30 @@ export default function DashboardPage() {
       />
 
       <main className="workbench-wrap">
-        <div className="callout simulated">
+        <header className={`${styles.pageHead} ${styles.reveal}`}>
+          <div>
+            <p className={styles.eyebrow}>
+              PayPal Sandbox · Dispute Defense Workbench
+            </p>
+            <h1 className={styles.title}>
+              Dispute Command Queue <em>— every case, one ledger.</em>
+            </h1>
+          </div>
+          <div className={styles.headMeta}>
+            <span className="tabular-nums">
+              {disputes.length} case{disputes.length === 1 ? "" : "s"}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">
+              {Object.keys(runs).length} swarm run
+              {Object.keys(runs).length === 1 ? "" : "s"}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{hasSandbox ? "Live Sandbox" : "Seeded demo"}</span>
+          </div>
+        </header>
+
+        <div className={`callout simulated ${styles.reveal}`} style={{ animationDelay: "60ms" }}>
           <span>
             <b>SIMULATED DATA</b> — seeded disputes are demo scenarios, not
             real buyers or funds. Checklist scores are an internal heuristic,
@@ -84,15 +109,22 @@ export default function DashboardPage() {
         )}
         {error && <div className="callout error">Error: {error}</div>}
 
-        <BentoKpis
-          disputes={disputes}
-          runs={runs}
-          executionsSucceeded={telemetry?.executions_succeeded ?? 0}
-        />
+        <div className={styles.reveal} style={{ animationDelay: "120ms" }}>
+          <BentoKpis
+            disputes={disputes}
+            runs={runs}
+            executionsSucceeded={telemetry?.executions_succeeded ?? 0}
+          />
+        </div>
 
-        <DisputeQueue disputes={disputes} runs={runs} />
+        <div className={styles.reveal} style={{ animationDelay: "180ms" }}>
+          <DisputeQueue disputes={disputes} runs={runs} />
+        </div>
 
-        <section className="card-white dashboard-section">
+        <section
+          className={`card-white dashboard-section ${styles.shell} ${styles.reveal}`}
+          style={{ animationDelay: "240ms" }}
+        >
           <h2 className="dashboard-section-title">
             Recent Swarm Executions ({Object.keys(runs).length})
           </h2>
@@ -108,7 +140,7 @@ export default function DashboardPage() {
           ) : (
             <div className="runs-list">
               {Object.entries(runs).map(([disputeId, r]) => (
-                <div key={disputeId} className="runs-row">
+                <div key={disputeId} className={`runs-row ${styles.runRow}`}>
                   <div>
                     <span className="font-mono runs-row-id">{disputeId}</span>
                     <span className="runs-row-meta">
@@ -131,7 +163,10 @@ export default function DashboardPage() {
           )}
         </section>
 
-        <section className="card-white dashboard-section">
+        <section
+          className={`card-white dashboard-section ${styles.shell} ${styles.reveal}`}
+          style={{ animationDelay: "300ms" }}
+        >
           <h2 className="dashboard-section-title">
             5-Page PDF Evidence Dossiers (pdf-lib · SHA-256 Manifest)
           </h2>
@@ -144,7 +179,7 @@ export default function DashboardPage() {
             {disputes.map((d) => (
               <a
                 key={d.id}
-                className="pdf-link"
+                className={`pdf-link ${styles.dossierLink}`}
                 href={`/api/disputes/${d.id}/evidence.pdf`}
                 target="_blank"
                 rel="noreferrer"
@@ -154,13 +189,24 @@ export default function DashboardPage() {
             ))}
           </div>
           {disputes.length === 0 && (
-            <button className="primary" onClick={seedDemo} disabled={loading}>
+            <button
+              className={`primary ${styles.magnetic}`}
+              onClick={seedDemo}
+              disabled={loading}
+            >
               Load seeded demo
             </button>
           )}
         </section>
 
-        <section className="card-white dashboard-section">
+        <div className={styles.reveal} style={{ animationDelay: "360ms" }}>
+          <AuditLog />
+        </div>
+
+        <section
+          className={`card-white dashboard-section ${styles.shell} ${styles.reveal}`}
+          style={{ animationDelay: "420ms" }}
+        >
           <h2 className="dashboard-section-title">
             Safety Gates &amp; Deterministic Scoring Charter
           </h2>

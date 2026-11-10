@@ -1,0 +1,194 @@
+/* Premium dashboard shell — Apple/Linear-grade layer on top of the
+   existing globals.css tokens. Hairlines, not shadows; colour = meaning
+   only; tabular numerals everywhere. All motion respects
+   prefers-reduced-motion. No layout class is redefined here — these
+   classes only ADD to the global ones. */
+
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 28px 0 4px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  color: var(--text-ink);
+}
+
+.title em {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.headMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Staggered entrance: fade + 6px rise, spring easing. Delay is set
+   inline per section (i * 60ms) so the page reads top-down. */
+.reveal {
+  animation: dashReveal 480ms var(--ease-out-expo) both;
+}
+
+@keyframes dashReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Magnetic primary action: lifts 1px on hover, presses to 0.97 on
+   active, springs back. Apply alongside the global .primary/.btn. */
+.magnetic {
+  transition:
+    transform 220ms var(--ease-out-expo),
+    box-shadow 220ms ease,
+    background-color 160ms ease;
+  will-change: transform;
+}
+
+.magnetic:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.magnetic:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 90ms;
+}
+
+/* Quiet hairline shell for dashboard sections — flat, 12px radius,
+   1px hairline; hover only deepens the border, never lifts. */
+.shell {
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--bg-white);
+  transition: border-color 200ms ease;
+}
+
+.shell:hover {
+  border-color: var(--border-medium);
+}
+
+/* Springy filter pills: scale + colour snap with an overshoot ease. */
+.pill {
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.pill:hover {
+  transform: translateY(-1px);
+}
+
+.pill:active {
+  transform: scale(0.96);
+}
+
+/* Search field: hairline ring that tightens to obsidian on focus. */
+.searchGlow {
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+
+.searchGlow:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px rgba(9, 9, 11, 0.06);
+}
+
+/* Fade-only entrance for SpotlightCard tiles: the card's inline
+   transform (hover lift) must not be overridden by an animation fill,
+   so this variant animates opacity only. */
+.fadeReveal {
+  animation: dashFade 480ms ease both;
+}
+
+@keyframes dashFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* KPI tile: cursor-glow border + staggered entrance via nth-child
+   (delay lives in CSS so SpotlightCard's inline style is untouched). */
+.tile {
+  transition: border-color 200ms ease;
+}
+
+.tile:nth-child(1) { animation-delay: 0ms; }
+.tile:nth-child(2) { animation-delay: 60ms; }
+.tile:nth-child(3) { animation-delay: 120ms; }
+.tile:nth-child(4) { animation-delay: 180ms; }
+
+.tile:hover {
+  border-color: var(--border-medium);
+}
+
+/* Recent-run rows and dossier links: row hover wash + arrow nudge. */
+.runRow {
+  transition: background-color 160ms ease;
+}
+
+.runRow:hover {
+  background-color: var(--bg-muted);
+}
+
+.dossierLink {
+  transition: transform 200ms var(--ease-out-expo), color 160ms ease;
+}
+
+.dossierLink:hover {
+  transform: translateX(3px);
+  color: var(--text-ink);
+}
+
+/* Grid "Open Defense Studio →": arrow slides 3px on row hover. */
+.actionLink span {
+  display: inline-block;
+  transition: transform 200ms var(--ease-out-expo);
+}
+
+.actionLink:hover span {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .fadeReveal {
+    animation: none;
+  }
+  .magnetic,
+  .pill,
+  .dossierLink {
+    transition: none;
+  }
+  .magnetic:hover:not(:disabled),
+  .pill:hover {
+    transform: none;
+  }
+}

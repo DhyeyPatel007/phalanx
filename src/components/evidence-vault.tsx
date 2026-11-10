@@ -11,6 +11,7 @@
 import { useRef, useState, type RefObject } from "react";
 import type { AttachedEvidence, EvidenceType } from "@/lib/types";
 import { CopyChip, HashScrambler } from "./ui/micro-interactions";
+import styles from "./detail.module.css";
 
 export const EVIDENCE_TYPE_POINTS: Record<
   EvidenceType,
@@ -110,7 +111,7 @@ export default function EvidenceVault({
     <div
       ref={vaultRef}
       id="evidence-vault"
-      className={`card-white vault-card${highlightedType ? " vault-highlight" : ""}`}
+      className={`card-white vault-card ${styles.reveal}${highlightedType ? " vault-highlight" : ""}`}
     >
       <div className="vault-head">
         <h3 className="vault-title">
@@ -208,7 +209,7 @@ export default function EvidenceVault({
             File Document (PDF, PNG, JPG, TXT, JSON, CSV — Max 5 MB)
           </label>
           <div
-            className={`dropzone${isDragOver ? " dragging" : ""}${highlightedType ? " highlight-dropzone-ring" : ""}`}
+            className={`dropzone ${styles.dropzone}${isDragOver ? " dragging" : ""}${highlightedType ? " highlight-dropzone-ring" : ""}`}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragOver(true);
@@ -260,7 +261,7 @@ export default function EvidenceVault({
         <div className="vault-submit-row">
           <button
             type="submit"
-            className="primary"
+            className={`primary ${styles.magnetic}`}
             disabled={uploading || !selectedFile}
           >
             {uploading ? "Verifying & Rescoring…" : "+ Attach Bill / Upload Exhibit"}
@@ -275,7 +276,7 @@ export default function EvidenceVault({
       ) : (
         <div className="vault-list">
           {attached.map((att) => (
-            <div key={att.id} className="vault-item">
+            <div key={att.id} className={`vault-item ${styles.vaultItem}`}>
               <div className="vault-item-main">
                 <div className="vault-item-head">
                   <span className="vault-item-name">{att.fileName}</span>
