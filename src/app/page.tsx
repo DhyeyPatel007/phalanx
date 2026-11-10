@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { useSpotlight } from "@/lib/ui-effects";
 import CommandBar from "@/components/command-bar";
 import SwarmPipeline from "@/components/swarm-pipeline";
+import BentoKpis from "@/components/bento-kpis";
+import type { Dispute, SwarmRun } from "@/lib/types";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -15,6 +17,9 @@ export default function LandingPage() {
   const [selectedCase, setSelectedCase] = useState<"A" | "B" | "C">("A");
   const [heroPass, setHeroPass] = useState<1 | 2>(2);
   const [totalVolumeUsd, setTotalVolumeUsd] = useState(785);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [runs, setRuns] = useState<Record<string, SwarmRun>>({});
+  const [executionsSucceeded, setExecutionsSucceeded] = useState(0);
 
   useEffect(() => {
     fetch("/api/disputes")
@@ -22,6 +27,17 @@ export default function LandingPage() {
       .then((data) => {
         if (data.telemetry?.total_volume_usd) {
           setTotalVolumeUsd(data.telemetry.total_volume_usd);
+        }
+        if (Array.isArray(data.disputes)) {
+          setDisputes(data.disputes);
+        }
+        // Runs arrive under `latest_runs` (one latest run per dispute).
+        const latestRuns = data.latest_runs ?? data.runs;
+        if (latestRuns && typeof latestRuns === "object") {
+          setRuns(latestRuns);
+        }
+        if (typeof data.telemetry?.executions_succeeded === "number") {
+          setExecutionsSucceeded(data.telemetry.executions_succeeded);
         }
       })
       .catch(() => {});
@@ -134,32 +150,12 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* KPI Row */}
-            <div className="grid-3" style={{ marginBottom: 20 }}>
-              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Total Volume</div>
-                <div className="font-mono tabular-nums" style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: "var(--text-ink)" }}>$785.00 USD</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>3 Seeded PayPal Cases</div>
-              </div>
-
-              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Deterministic Score</div>
-                <div className="font-mono tabular-nums" style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: heroPass === 2 ? "var(--verdict-contest-text)" : "var(--verdict-offer-text)" }}>
-                  {heroPass === 1 ? "60 / 100" : "85 / 100"}
-                </div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                  {heroPass === 1 ? "Gap: Merchant chat missing" : "Verified: Tracking + Chat"}
-                </div>
-              </div>
-
-              <div className="spotlight lift" style={{ background: "var(--bg-muted)", padding: 14, borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.04em" }}>Human Approval Gate</div>
-                <div style={{ fontSize: 20, fontWeight: 700, margin: "2px 0", color: "var(--accent-primary)" }}>
-                  MANDATORY
-                </div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>Zero Autonomous PayPal Calls</div>
-              </div>
-            </div>
+            {/* KPI strip — live 4-tile Bento, computed from loaded disputes */}
+            <BentoKpis
+              disputes={disputes}
+              runs={runs}
+              executionsSucceeded={executionsSucceeded}
+            />
 
             {/* Framed Ledger Strip */}
             <div style={{ background: "#ffffff", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-tag)", overflow: "hidden" }}>

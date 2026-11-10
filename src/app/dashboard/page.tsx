@@ -97,8 +97,13 @@ export default function DashboardPage() {
 
       setDisputes(list);
       setTelemetry(body.telemetry ?? null);
-      if (body.runs && typeof body.runs === "object") {
-        setRuns(body.runs);
+      // The API returns runs under `latest_runs` (one latest run per
+      // dispute) so the ledger hydrates after a reload instead of
+      // resetting to NOT RUN. (`body.runs` is accepted as a fallback
+      // only; the API has never returned that key.)
+      const latestRuns = body.latest_runs ?? body.runs;
+      if (latestRuns && typeof latestRuns === "object") {
+        setRuns(latestRuns);
       }
       if (body.liveError) {
         setNotice(
