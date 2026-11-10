@@ -3,7 +3,14 @@
 // Exits non-zero on any failure. No server, no live PayPal calls.
 
 import { PDFDocument } from "pdf-lib";
-import { artifactsFromDetail, ingestVerifiedEvent } from "../src/lib/ingest";
+import {
+  artifactsFromDetail,
+  ensureLiveDispute,
+  ingestPayPalDispute,
+  ingestVerifiedEvent,
+  syncLiveDisputes,
+} from "../src/lib/ingest";
+import { paypalConfigured } from "../src/lib/paypal";
 import { artifactsForPdf, buildEvidencePdf, evidenceTypesFor } from "../src/lib/pdf";
 import { computeOfferAmount, computeOfferPct, evDisplay, resolveFeeForDispute, scoreDispute } from "../src/lib/scorer";
 import { draft, getProviderConfig, PROVIDER_REGISTRY, stripThinking } from "../src/lib/llm";
@@ -43,6 +50,7 @@ import {
   getApproval,
   getArtifacts,
   getAttachedEvidence,
+  listDisputes,
   setApproval,
   upsertDispute,
 } from "../src/lib/store";
@@ -847,6 +855,125 @@ function executeGateChecks(): void {
   check("Gate: gated sandbox dispute passes", true, ok.ok);
 }
 
+// ---- Live-sync fallback (pull, not push) ----
+// ingestPayPalDispute / ensureLiveDispute / syncLiveDisputes. Pure w.r.t.
+// the network: the detail is fabricated after a real getPayPalDispute
+// response (PP-R-EEM-10198213, the live $480 Sandbox dispute). No live
+// PayPal calls: ensure/sync are only exercised on their unconfigured
+// fail-soft path (this VM has no PayPal credentials).
+async function liveSyncChecks(): Promise<void> {
+  loadSeed();
+  const liveDetail: Record<string, unknown> = {
+    dispute_id: "PP-R-EEM-10198213",
+    create_time: "2026-11-11T01:45:00.000Z",
+    update_time: "2026-11-11T01:45:00.000Z",
+    reason: "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+    status: "WAITING_FOR_SELLER_RESPONSE",
+    dispute_life_cycle_stage: "INQUIRY",
+    dispute_state: "REQUIRED_ACTION",
+    dispute_amount: { currency_code: "USD", value: "480.00" },
+    disputed_transactions: [
+      {
+        seller_transaction_id: "2LX90748BA432971S",
+        buyer_transaction_id: "2LX90748BA432971S",
+        transaction_status: "COMPLETED",
+        gross_amount: { currency_code: "USD", value: "480.00" },
+      },
+    ],
+    links: [
+      { rel: "self", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213" },
+      { rel: "provide-evidence", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/provide-evidence" },
+      { rel: "accept-claim", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/accept-claim" },
+      { rel: "send-message", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/send-message" },
+    ],
+    allowed_response_options: { accept_claim: { accept_claim_types: ["REFUND"] } },
+  };
+
+  // First ingest creates a live sandbox row.
+  const first = ingestPayPalDispute(liveDetail);
+  check("Live-sync ingest returns ok", true, first.ok);
+  check("Live-sync ingest creates the row", true, first.created);
+  check("Live-sync ingest reports the id", "PP-R-EEM-10198213", first.dispute_id);
+  const stored = getDispute("PP-R-EEM-10198213")!;
+  check("Live-sync row source is sandbox", "sandbox", stored.source);
+  check("Live-sync row amount", "480.00", stored.amount.value);
+  check("Live-sync row reason", "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", stored.reason);
+  check("Live-sync row status", "WAITING_FOR_SELLER_RESPONSE", stored.status);
+  check("Live-sync allowed actions include provide-evidence", true, stored.allowed_actions.includes("provide-evidence"));
+  check("Live-sync allowed actions exclude self link", false, stored.allowed_actions.includes("self"));
+  check("Live-sync derives 1 invoice artifact", 1, getArtifacts("PP-R-EEM-10198213").length);
+  check("Live-sync artifact kind is invoice", "invoice", getArtifacts("PP-R-EEM-10198213")[0]?.kind);
+  check("Live-sync artifact carries seller tx id", true, getArtifacts("PP-R-EEM-10198213")[0]?.summary.includes("2LX90748BA432971S") ?? false);
+
+  // Second ingest of the same detail dedupes — no duplicate row.
+  const second = ingestPayPalDispute(liveDetail);
+  check("Live-sync re-ingest returns ok", true, second.ok);
+  check("Live-sync re-ingest does not re-create", false, second.created);
+  check("Live-sync dedupe keeps exactly one row", 1, listDisputes().filter((d) => d.id === "PP-R-EEM-10198213").length);
+
+  // Re-ingest with a changed status refreshes status only; attached
+  // evidence and the human approval set in between are preserved, and
+  // the derived artifact is not duplicated.
+  addAttachedEvidence("PP-R-EEM-10198213", {
+    id: "ev-live-sync-test",
+    disputeId: "PP-R-EEM-10198213",
+    fileName: "INV-88412.pdf",
+    mimeType: "application/pdf",
+    evidenceType: "INVOICE",
+    referenceId: "INV-88412",
+    documentDate: "2026-11-10",
+    sizeBytes: 1234,
+    sha256: "ab".repeat(32),
+    quality: "STRONG",
+    scoreDelta: 15,
+    createdAt: new Date().toISOString(),
+  });
+  setApproval({
+    id: "appr-live-sync-test",
+    dispute_id: "PP-R-EEM-10198213",
+    action: "provide-evidence",
+    approved_by: "merchant-test",
+    approved_at: new Date().toISOString(),
+    run_id: "run-live-sync-test",
+  });
+  const refreshed = ingestPayPalDispute({
+    ...liveDetail,
+    status: "UNDER_REVIEW",
+    links: [{ rel: "self" }, { rel: "send-message" }],
+  });
+  check("Live-sync refresh returns ok", true, refreshed.ok);
+  check("Live-sync refresh is not a create", false, refreshed.created);
+  const afterRefresh = getDispute("PP-R-EEM-10198213")!;
+  check("Live-sync refresh updates status", "UNDER_REVIEW", afterRefresh.status);
+  check("Live-sync refresh updates allowed actions", "send-message", afterRefresh.allowed_actions.join(","));
+  check("Live-sync refresh preserves attached evidence", 1, getAttachedEvidence("PP-R-EEM-10198213").length);
+  check("Live-sync refresh preserves human approval", "provide-evidence", getApproval("PP-R-EEM-10198213")?.action);
+  check("Live-sync refresh does not duplicate artifacts", 1, getArtifacts("PP-R-EEM-10198213").length);
+
+  // Malformed details are refused, never throw, never create rows.
+  check("Live-sync null detail is refused", false, ingestPayPalDispute(null).ok);
+  check("Live-sync empty detail is refused", false, ingestPayPalDispute({}).ok);
+  check("Live-sync non-string id is refused", false, ingestPayPalDispute({ id: 123 }).ok);
+  check("Live-sync malformed detail creates no row", undefined, getDispute("PP-D-99999"));
+
+  // A detail for a seeded id never overwrites the SIMULATED row.
+  const seededRefusal = ingestPayPalDispute({ ...liveDetail, dispute_id: "PP-D-88412" });
+  check("Live-sync seeded id is refused", "seeded row", seededRefusal.ignored);
+  check("Live-sync seeded row status untouched", "WAITING_FOR_SELLER_RESPONSE", getDispute("PP-D-88412")!.status);
+
+  // Fail-soft without PayPal credentials (this VM has none): ensure and
+  // sync return null / empty instead of throwing. If credentials ever
+  // exist here, skip rather than call live PayPal from a unit check.
+  if (!paypalConfigured()) {
+    check("ensureLiveDispute unconfigured returns null", null, await ensureLiveDispute("PP-R-UNKNOWN-1"));
+    const sync = await syncLiveDisputes();
+    check("syncLiveDisputes unconfigured adds nothing", 0, sync.added.length);
+    check("syncLiveDisputes unconfigured has no error", null, sync.liveError);
+  } else {
+    console.log("SKIP live-sync unconfigured checks: PayPal is configured on this VM");
+  }
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
   await draftNoKeyChecks();
@@ -854,6 +981,7 @@ async function main(): Promise<void> {
   await swarmAndTrackerChecks();
   await practicalReasoningAndEvidenceChecks();
   await webhookUpdateChecks();
+  await liveSyncChecks();
   executeGateChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);

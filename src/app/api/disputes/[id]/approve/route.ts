@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDispute, latestRun, setApproval } from "@/lib/store";
+import { ensureLiveDispute } from "@/lib/ingest";
 import { actionForVerdict, computeOfferAmount } from "@/lib/scorer";
 import {
   checkOfferAcceptTypes,
@@ -11,6 +12,8 @@ import {
  * POST /api/disputes/{id}/approve — human approval gate (brief §5/§6).
  * Records approver = "demo merchant" + the exact action + amounts approved.
  * Required before execution. Approval is tied to the latest swarm run.
+ * Live-sync fallback: a live dispute not yet in the store is pulled
+ * from PayPal on demand (fail-soft) before returning 404.
  *
  * make-offer: default offer is 40% of the dispute amount (Scenario B);
  * the human may pass a different offer_amount, which must be > 0 and
@@ -21,7 +24,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const dispute = getDispute(id);
+  const dispute = getDispute(id) ?? (await ensureLiveDispute(id));
   if (!dispute) {
     return NextResponse.json({ error: "dispute not found" }, { status: 404 });
   }

@@ -13,8 +13,15 @@ import {
   seenWebhookEvent,
   upsertDispute,
 } from "./store";
-import { getPayPalDispute } from "./paypal";
+import { getPayPalDispute, listPayPalDisputes, paypalConfigured } from "./paypal";
 import type { Dispute, EvidenceArtifact } from "./types";
+
+/** Bounded per-request timeout for pull-sync reads (live-sync fallback).
+ *  The ledger must never hang because PayPal is slow or down. */
+const LIVE_SYNC_TIMEOUT_MS = 10_000;
+/** Cap on detail fetches per list sync — a pathological merchant ledger
+ *  must not turn one page load into dozens of sequential PayPal calls. */
+const LIVE_SYNC_MAX_DETAIL_FETCHES = 20;
 
 export interface IngestResult {
   ok: boolean;
@@ -338,4 +345,204 @@ export async function ingestVerifiedEvent(
     logWebhook({ event_id: eventId, result: "INGEST_FAILED", detail: message });
     return { ok: false, dispute_id: disputeId, event_id: eventId };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Live-sync fallback (pull, not push).
+//
+// The webhook path is the primary ingestion route, but in Sandbox PayPal
+// has recorded ZERO CUSTOMER.DISPUTE.CREATED deliveries for real disputes
+// against the app's merchant (verified Nov 11, 2026 — webhook subscribed
+// and correct, no events in 30 days), so live disputes never reach the
+// in-memory store. This fallback pulls them over the authenticated
+// server-to-server REST API instead. A dispute fetched this way IS
+// verified: the OAuth2 client-credentials token acts as the app's own
+// Sandbox merchant, and the detail comes straight from PayPal — no
+// webhook signature is involved or needed.
+//
+// Rules: never throw, never wipe. A re-ingest updates ONLY the live
+// status fields (status / stage / state / allowed actions / options /
+// raw detail) from the fresh detail — merchant-attached evidence, runs,
+// and approvals live in separate maps and are untouched. A detail for a
+// seeded (SIMULATED) id is refused, exactly like the webhook path.
+// ---------------------------------------------------------------------------
+
+export interface LiveIngestResult extends IngestResult {
+  /** True when the call created a new store row (false = refresh of an
+   *  existing sandbox row, or a refusal). */
+  created?: boolean;
+}
+
+/** Build a sandbox Dispute row from a PayPal detail object. Returns null
+ *  when the detail is malformed (no string id). */
+function disputeFromDetail(detail: Record<string, unknown>): Dispute | null {
+  const id =
+    (detail.dispute_id as string | undefined) ??
+    (detail.id as string | undefined);
+  if (typeof id !== "string" || id.length === 0) return null;
+  const links = (detail.links ?? []) as { rel?: unknown }[];
+  const allowed = links
+    .map((l) => l.rel)
+    .filter((r): r is string => typeof r === "string" && r !== "self");
+  return {
+    id,
+    source: "sandbox",
+    reason: (detail.reason as string) ?? "UNKNOWN",
+    amount: (detail.dispute_amount as { currency_code: string; value: string }) ?? {
+      currency_code: "USD",
+      value: "0.00",
+    },
+    status: (detail.status as string) ?? "OPEN",
+    dispute_life_cycle_stage: (detail.dispute_life_cycle_stage as string) ?? "INQUIRY",
+    dispute_state: (detail.dispute_state as string) ?? "OPEN_INQUIRIES",
+    allowed_actions: allowed,
+    allowed_response_options: (detail.allowed_response_options as Dispute["allowed_response_options"]) ?? undefined,
+    raw_paypal_detail: detail,
+    created_at: (detail.create_time as string) ?? new Date().toISOString(),
+  };
+}
+
+/**
+ * Ingest one PayPal dispute detail object (as returned by
+ * getPayPalDispute) into the store as a live `sandbox` row. Pure w.r.t.
+ * the network — the caller supplies the detail, so this is unit-testable
+ * with a fabricated detail. Dedupe on dispute id; a re-ingest refreshes
+ * only live status fields and never wipes attached evidence, runs, or
+ * approvals. Never throws.
+ */
+export function ingestPayPalDispute(detail: unknown): LiveIngestResult {
+  try {
+    if (!detail || typeof detail !== "object") {
+      return { ok: false, ignored: "malformed detail: not an object" };
+    }
+    const row = disputeFromDetail(detail as Record<string, unknown>);
+    if (!row) {
+      return { ok: false, ignored: "malformed detail: no dispute id" };
+    }
+    const existing = getDispute(row.id);
+    if (existing && existing.source === "seeded") {
+      return {
+        ok: true,
+        ignored: "seeded row",
+        dispute_id: row.id,
+        created: false,
+      };
+    }
+    if (existing) {
+      // Refresh: live status fields only, from fields actually present.
+      // Absent fields keep their stored values (same rule as
+      // patchFromResource on the webhook path).
+      const updated: Dispute = {
+        ...existing,
+        status:
+          (detail as Record<string, unknown>).status !== undefined
+            ? row.status
+            : existing.status,
+        dispute_life_cycle_stage:
+          (detail as Record<string, unknown>).dispute_life_cycle_stage !== undefined
+            ? row.dispute_life_cycle_stage
+            : existing.dispute_life_cycle_stage,
+        dispute_state:
+          (detail as Record<string, unknown>).dispute_state !== undefined
+            ? row.dispute_state
+            : existing.dispute_state,
+        allowed_actions:
+          row.allowed_actions.length > 0 ? row.allowed_actions : existing.allowed_actions,
+        allowed_response_options:
+          row.allowed_response_options ?? existing.allowed_response_options,
+        raw_paypal_detail: row.raw_paypal_detail,
+      };
+      upsertDispute(updated);
+      addArtifacts(artifactsFromDetail(row.id, detail as Record<string, unknown>));
+      return { ok: true, dispute_id: row.id, created: false };
+    }
+    upsertDispute(row);
+    addArtifacts(artifactsFromDetail(row.id, detail as Record<string, unknown>));
+    return { ok: true, dispute_id: row.id, created: true };
+  } catch (err) {
+    return {
+      ok: false,
+      ignored: `ingest failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Return the stored dispute if present; otherwise — only when PayPal is
+ * configured — fetch it from PayPal and ingest it. Fail-soft: any
+ * failure (not configured, PayPal 404, timeout, malformed detail) logs
+ * nothing to the user and returns null, never throws.
+ */
+export async function ensureLiveDispute(id: string): Promise<Dispute | null> {
+  const existing = getDispute(id);
+  if (existing) return existing;
+  if (!paypalConfigured()) return null;
+  try {
+    const detail = (await getPayPalDispute(id, LIVE_SYNC_TIMEOUT_MS)) as Record<string, unknown>;
+    const res = ingestPayPalDispute(detail);
+    if (!res.ok || !res.dispute_id) return null;
+    return getDispute(res.dispute_id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface LiveSyncResult {
+  /** Ids newly ingested into the store by this sync. */
+  added: string[];
+  /** Ids already present in the store (left alone, no re-fetch). */
+  alreadyPresent: string[];
+  /** Non-null when the PayPal list call failed (or PayPal is not
+   *  configured — in which case this is null and added is empty, i.e.
+   *  the caller keeps the seeded-only behaviour). */
+  liveError: string | null;
+}
+
+/**
+ * Pull-sync: list live disputes from PayPal and ingest every id missing
+ * from the store (full detail fetch per missing id, bounded). Ids already
+ * stored are left alone — status refresh for those stays on the webhook
+ * path. Fail-soft: a list/fetch failure returns liveError and an empty
+ * `added` list; the caller keeps serving seeded rows.
+ */
+export async function syncLiveDisputes(): Promise<LiveSyncResult> {
+  const empty: LiveSyncResult = { added: [], alreadyPresent: [], liveError: null };
+  if (!paypalConfigured()) return empty;
+  let listed: { items?: unknown[] };
+  try {
+    listed = (await listPayPalDisputes({}, LIVE_SYNC_TIMEOUT_MS)) as {
+      items?: unknown[];
+    };
+  } catch (err) {
+    return {
+      ...empty,
+      liveError: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const items = Array.isArray(listed.items) ? listed.items : [];
+  const added: string[] = [];
+  const alreadyPresent: string[] = [];
+  let fetched = 0;
+  for (const item of items) {
+    if (typeof item !== "object" || item === null) continue;
+    const it = item as Record<string, unknown>;
+    const id =
+      (it.dispute_id as string | undefined) ?? (it.id as string | undefined);
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (getDispute(id)) {
+      alreadyPresent.push(id);
+      continue;
+    }
+    if (fetched >= LIVE_SYNC_MAX_DETAIL_FETCHES) continue;
+    fetched += 1;
+    try {
+      const detail = (await getPayPalDispute(id, LIVE_SYNC_TIMEOUT_MS)) as Record<string, unknown>;
+      const res = ingestPayPalDispute(detail);
+      if (res.ok && res.created && res.dispute_id) added.push(res.dispute_id);
+    } catch {
+      // One bad detail must not abort the sync of the rest.
+      continue;
+    }
+  }
+  return { added, alreadyPresent, liveError: null };
 }
