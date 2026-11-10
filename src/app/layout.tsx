@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 // New theme (Nov 11, 2026): Inter editorial sans + JetBrains Mono for
@@ -32,6 +32,19 @@ const jetbrainsMono = JetBrains_Mono({
   ],
 });
 
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+  variable: "--font-display",
+  display: "swap",
+  fallback: ["Georgia", "'Times New Roman'", "serif"],
+});
+
+// Premium foundations (Nov 11, 2026): Instrument Serif italic is for
+// display accent words only (e.g. "Hallucinated" in "Zero Hallucinated
+// Verdicts"), never body text.
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://phalanx.krynex.in"),
   title: "PHALANX — Adversarial Dispute Defense for PayPal Merchants",
@@ -61,7 +74,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable}`}
     >
       <body className="light-theme">{children}</body>
     </html>

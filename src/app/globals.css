@@ -56,6 +56,28 @@
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Premium foundations (Nov 11, 2026) — ADDITIVE ONLY. No existing
+     variable value above was changed. */
+  /* Deeper ink for hero-stage surfaces (dark stage behind the product
+     visual; Raycast-style void, blue-tinted, never pure black). */
+  --ink-hero: #07080a;
+  --ink-hero-surface: #0d0d0d;
+  --ink-hero-elevated: #121212;
+  --ink-hero-text: #f9f9f9;
+  --ink-hero-meta: #6a6b6c;
+  --ink-hero-border: rgba(255, 255, 255, 0.06);
+
+  /* Premium motion tokens — Raycast-quiet: fades, rises, springs. */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring-soft: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-scrub: linear;
+  --duration-reveal: 0.6s;
+  --duration-reveal-slow: 0.9s;
+  --duration-counter: 0.9s;
+  --duration-magnetic: 0.35s;
+  --duration-marquee: 32s;
+  --reveal-rise: 18px;
 }
 
 * {
@@ -3793,5 +3815,187 @@ button.primary:hover:not(:disabled)::after,
   }
   .swarm-viz-beam {
     display: none;
+  }
+}
+
+/* ================================================================
+   PREMIUM FOUNDATIONS (Nov 11, 2026) — from-scratch rebuild layer.
+   Hand-rolled primitives only: IntersectionObserver + rAF + CSS, zero
+   new dependencies. Raycast-quiet motion: fades, rises, springs —
+   one different animation per section, usable, not over-designed.
+   The Gemini palette above is untouched; these classes only ADD.
+   ================================================================ */
+
+/* --- Display serif accent (Instrument Serif italic, accent words
+   only — never body text). Falls back to Georgia italic if the
+   next/font fetch ever fails. --- */
+.font-display {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+}
+
+.display-accent {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* --- Reveal (fade + rise on inView; .is-visible added by JS) --- */
+.px-reveal {
+  opacity: 0;
+  transform: translateY(var(--reveal-rise));
+  transition:
+    opacity var(--duration-reveal) var(--ease-spring),
+    transform var(--duration-reveal) var(--ease-spring);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.px-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.px-reveal-slow {
+  transition-duration: var(--duration-reveal-slow);
+}
+
+/* --- Scroll progress hairline (fixed top bar) --- */
+.px-scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 60;
+  pointer-events: none;
+  background: transparent;
+}
+
+.px-scroll-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--accent-primary);
+  transform-origin: 0 50%;
+  transform: scaleX(var(--scroll-progress, 0));
+}
+
+/* --- Magnetic wrapper (translate toward cursor, spring back) --- */
+.px-magnetic {
+  display: inline-block;
+  transition: transform var(--duration-magnetic) var(--ease-spring-soft);
+  will-change: transform;
+}
+
+.px-magnetic.is-magnetic {
+  transition: transform 0.12s linear;
+}
+
+/* --- Spring counter (tabular numerals, no layout shift) --- */
+.px-counter {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* --- Marquee (CSS-animated, pause on hover) --- */
+.px-marquee {
+  overflow: hidden;
+  position: relative;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 8%,
+    #000 92%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 8%,
+    #000 92%,
+    transparent
+  );
+}
+
+.px-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: px-marquee var(--duration-marquee) linear infinite;
+  will-change: transform;
+}
+
+.px-marquee:hover .px-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes px-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* --- Cursor glow card (reusable spotlight via --mouse-x/--mouse-y) --- */
+.px-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.px-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    320px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(16, 185, 129, 0.07),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.px-glow:hover::after {
+  opacity: 1;
+}
+
+/* --- Hero-stage dark surface (Raycast void, blue-tinted ink) --- */
+.px-hero-stage {
+  background: var(--ink-hero);
+  color: var(--ink-hero-text);
+  border: 1px solid var(--ink-hero-border);
+  border-radius: var(--radius-card);
+}
+
+/* --- Reduced motion: EVERY premium animation stands down and
+   content is never hidden. Extends the existing reduced-motion
+   blocks above — reveal starts visible, marquee track is static,
+   magnetic/glow/progress do nothing. --- */
+@media (prefers-reduced-motion: reduce) {
+  .px-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .px-marquee-track {
+    animation: none;
+  }
+
+  .px-magnetic,
+  .px-magnetic.is-magnetic {
+    transform: none !important;
+    transition: none;
+  }
+
+  .px-glow::after {
+    display: none;
+  }
+
+  .px-scroll-progress-bar {
+    transform: scaleX(var(--scroll-progress, 0));
   }
 }
