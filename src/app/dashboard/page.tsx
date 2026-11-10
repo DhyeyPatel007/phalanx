@@ -7,7 +7,6 @@ import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
   ModuleRegistry,
-  themeQuartz,
   type ColDef,
 } from "ag-grid-community";
 import type {
@@ -15,26 +14,18 @@ import type {
   SwarmRun,
   Verdict,
 } from "@/lib/types";
-import { useNavPill, useSpotlight } from "@/lib/ui-effects";
+import { useSpotlight } from "@/lib/ui-effects";
+import CommandBar from "@/components/command-bar";
+import BentoKpis from "@/components/bento-kpis";
+import {
+  ActionHoverCell,
+  DisputeIdCell,
+  ScoreGaugeCell,
+  VerdictBadgeCell,
+  phalanxGridTheme,
+} from "@/components/ag-grid-cells";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-const phalanxLightGridTheme = themeQuartz.withParams({
-  backgroundColor: "#FFFFFF",
-  foregroundColor: "#09090B",
-  headerBackgroundColor: "#FAFAFA",
-  headerTextColor: "#52525B",
-  borderColor: "rgba(24, 24, 27, 0.08)",
-  rowHoverColor: "#F4F4F5",
-  selectedRowBackgroundColor: "rgba(9, 9, 11, 0.08)",
-  accentColor: "#09090B",
-  fontFamily: "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  fontSize: 13,
-  headerFontSize: 12,
-  headerFontWeight: 600,
-  borderRadius: 0,
-  wrapperBorderRadius: 12,
-});
 
 type TabSection = "disputes" | "runs" | "dossiers" | "settings";
 
@@ -47,6 +38,8 @@ interface Row {
   verdict: Verdict | null;
   status: string;
   source: string;
+  /** Real offer amount from the run's deterministic EV display (B only). */
+  offerUsd?: number | null;
 }
 
 interface Telemetry {
@@ -73,8 +66,6 @@ function verdictBadge(v: Verdict | null) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const navRef = useRef<HTMLElement | null>(null);
-  useNavPill(navRef);
   useSpotlight();
   const [activeTab, setActiveTab] = useState<TabSection>("disputes");
   const [disputes, setDisputes] = useState<Dispute[]>([]);
@@ -153,36 +144,21 @@ export default function DashboardPage() {
           verdict: run ? run.verdict : null,
           status: d.status,
           source: d.source === "seeded" ? "Seeded — SIMULATED" : "Sandbox",
+          offerUsd: run?.ev_display?.offer_cost_usd ?? null,
         };
       }),
     [disputes, runs],
   );
 
-  const totalVolume = telemetry
-    ? telemetry.total_volume_usd
-    : disputes.reduce((s, d) => s + parseFloat(d.amount.value), 0);
-  const runDurations = Object.values(runs).map((r) => r.duration_ms);
-  const avgRunMs =
-    telemetry?.avg_run_ms ??
-    (runDurations.length > 0
-      ? Math.round(runDurations.reduce((a, b) => a + b, 0) / runDurations.length)
-      : null);
-  const capitalSaved = telemetry ? telemetry.capital_saved_usd : 0;
-  const feesAvoided = telemetry ? telemetry.fees_avoided_usd : 0;
-
   const columns: ColDef<Row>[] = [
     {
       field: "id",
       headerName: "Dispute ID",
-      minWidth: 150,
-      flex: 1.1,
+      minWidth: 200,
+      flex: 1.4,
       sortable: true,
       filter: true,
-      cellRenderer: (p: { value: string }) => (
-        <Link href={`/disputes/${p.value}`} className="grid-link font-mono">
-          {p.value}
-        </Link>
-      ),
+      cellRenderer: DisputeIdCell,
     },
     {
       field: "reason",
@@ -219,27 +195,18 @@ export default function DashboardPage() {
     {
       field: "score",
       headerName: "Checklist Score",
-      minWidth: 130,
-      flex: 1.1,
+      minWidth: 160,
+      flex: 1.2,
       sortable: true,
-      cellStyle: { textAlign: "right" },
-      headerClass: "ag-right-aligned-header",
-      cellRenderer: (p: { value: number | null }) =>
-        p.value === null ? (
-          <span style={{ color: "var(--text-muted)" }}>—</span>
-        ) : (
-          <span className="tabular-nums font-mono" style={{ fontWeight: 600 }}>
-            {p.value}/100
-          </span>
-        ),
+      cellRenderer: ScoreGaugeCell,
     },
     {
       field: "verdict",
       headerName: "Verdict",
-      minWidth: 160,
-      flex: 1.4,
+      minWidth: 220,
+      flex: 1.6,
       sortable: true,
-      cellRenderer: (p: { value: Verdict | null }) => verdictBadge(p.value),
+      cellRenderer: VerdictBadgeCell,
     },
     {
       field: "status",
@@ -265,26 +232,28 @@ export default function DashboardPage() {
         </span>
       ),
     },
+    {
+      field: "id",
+      headerName: "",
+      minWidth: 160,
+      flex: 1.0,
+      sortable: false,
+      filter: false,
+      cellRenderer: ActionHoverCell,
+    },
   ];
 
+  const hasSandbox = disputes.some((d) => d.source === "sandbox");
   return (
     <div>
-      {/* Benchmark: Floating Pill Navigation */}
-      <div className="floating-nav-wrap">
-        <header className="floating-nav">
-          <div className="brand-cluster">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span className="brand-mark">P</span>
-              <span>PHALANX</span>
-            </Link>
-            <span className="chip obsidian">PayPal Sandbox</span>
-          </div>
-
-          <nav className="nav-links" aria-label="Workbench navigation" ref={navRef}>
-            <span className="nav-pill" aria-hidden="true" />
-            <Link href="/" className="nav-link">
-              Overview
-            </Link>
+      <CommandBar
+        envMode={hasSandbox ? "sandbox" : "seeded"}
+        links={[
+          { href: "/", label: "Overview" },
+          { href: "/guide", label: "Guide ↗" },
+        ]}
+        navExtra={
+          <>
             <button
               type="button"
               className={`nav-link ${activeTab === "disputes" ? "active" : ""}`}
@@ -313,21 +282,19 @@ export default function DashboardPage() {
             >
               Safety Policy
             </button>
-            <Link href="/guide" className="nav-link">
-              Guide ↗
-            </Link>
-          </nav>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          </>
+        }
+        actions={
+          <>
             <button onClick={refresh} disabled={loading} style={{ fontSize: 13, padding: "6px 14px" }}>
               {loading ? "Refreshing…" : "Refresh"}
             </button>
             <button className="primary" onClick={seedDemo} style={{ fontSize: 13, padding: "6px 14px" }}>
               Load seeded demo
             </button>
-          </div>
-        </header>
-      </div>
+          </>
+        }
+      />
 
       <main className="workbench-wrap">
         {/* Mandatory Honesty Callout — Always Visible */}
@@ -352,97 +319,11 @@ export default function DashboardPage() {
         )}
         {error && <div className="callout error">Error: {error}</div>}
 
-        {/* 4 Vercel-Style Usage Meter Bars (KPI Discipline) */}
-        <section className="grid-2" style={{ gap: 16 }} aria-label="Usage Meters">
-          {/* Meter 1: Total Volume */}
-          <div className="meter-card spotlight lift">
-            <div className="meter-header">
-              <span>TOTAL DISPUTED VOLUME</span>
-              <span className="font-mono tabular-nums">{disputes.length} Disputes Active</span>
-            </div>
-            <div className="meter-value-large tabular-nums font-mono">
-              ${totalVolume.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
-            </div>
-            <div className="meter-track">
-              <div
-                className="meter-fill"
-                style={{ width: `${Math.min(100, Math.max(15, (disputes.length / 5) * 100))}%` }}
-              />
-            </div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-              Sum of loaded dispute principal across the active ledger.
-            </div>
-          </div>
-
-          {/* Meter 2: Capital Defended */}
-          <div className="meter-card spotlight lift">
-            <div className="meter-header">
-              <span>CAPITAL DEFENDED</span>
-              <span className="font-mono tabular-nums">
-                {totalVolume > 0 ? Math.round((capitalSaved / totalVolume) * 100) : 0}% Defended
-              </span>
-            </div>
-            <div className="meter-value-large tabular-nums font-mono">
-              ${capitalSaved.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
-            </div>
-            <div className="meter-track">
-              <div
-                className="meter-fill"
-                style={{
-                  width: `${totalVolume > 0 ? Math.min(100, (capitalSaved / totalVolume) * 100) : 0}%`,
-                }}
-              />
-            </div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-              Counts confirmed Sandbox executions; stays $0 on unexecuted demo runs.
-            </div>
-          </div>
-
-          {/* Meter 3: Dispute Fees Avoided */}
-          <div className="meter-card spotlight lift">
-            <div className="meter-header">
-              <span>DISPUTE FEES AVOIDED</span>
-              <span className="font-mono tabular-nums">US Standard $15/case</span>
-            </div>
-            <div className="meter-value-large tabular-nums font-mono">
-              ${feesAvoided.toFixed(2)} <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>USD</span>
-            </div>
-            <div className="meter-track">
-              <div
-                className="meter-fill"
-                style={{ width: `${Math.min(100, (feesAvoided / 45) * 100)}%` }}
-              />
-            </div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-              Oct 1, 2026 fee schedule standard basis; $0 until execution succeeds.
-            </div>
-          </div>
-
-          {/* Meter 4: Avg Swarm Duration */}
-          <div className="meter-card spotlight lift">
-            <div className="meter-header">
-              <span>AVG SWARM DURATION</span>
-              <span className="font-mono tabular-nums">Target &lt;2,000 ms</span>
-            </div>
-            <div className="meter-value-large tabular-nums font-mono">
-              {avgRunMs === null ? "—" : `${avgRunMs} `}
-              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-muted)" }}>
-                {avgRunMs === null ? "" : "ms"}
-              </span>
-            </div>
-            <div className="meter-track">
-              <div
-                className="meter-fill"
-                style={{
-                  width: `${avgRunMs ? Math.min(100, Math.max(15, Math.round((avgRunMs / 2000) * 100))) : 0}%`,
-                }}
-              />
-            </div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-              Local deterministic multi-agent loop; zero unsourced manual claims.
-            </div>
-          </div>
-        </section>
+        <BentoKpis
+          disputes={disputes}
+          runs={runs}
+          executionsSucceeded={telemetry?.executions_succeeded ?? 0}
+        />
 
         {activeTab === "runs" && (
           <section className="card-white">
@@ -573,7 +454,7 @@ export default function DashboardPage() {
                 ref={gridRef}
                 rowData={rows}
                 columnDefs={columns}
-                theme={phalanxLightGridTheme}
+                theme={phalanxGridTheme}
                 defaultColDef={{ resizable: true }}
                 getRowClass={(params) =>
                   params.data?.verdict === "CONTEST_HARD_PROOF"

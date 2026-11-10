@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { useNavPill, useSpotlight } from "@/lib/ui-effects";
+import { useEffect, useState } from "react";
+import { useSpotlight } from "@/lib/ui-effects";
+import CommandBar from "@/components/command-bar";
+import SwarmPipeline from "@/components/swarm-pipeline";
 
 export default function LandingPage() {
   const router = useRouter();
-  const navRef = useRef<HTMLElement | null>(null);
-  useNavPill(navRef);
   useSpotlight();
   const [disputeInput, setDisputeInput] = useState("");
   const [inputNotice, setInputNotice] = useState<string | null>(null);
@@ -46,40 +46,20 @@ export default function LandingPage() {
 
   return (
     <div className="landing-page">
-      {/* 1. Floating Pill Nav (Chargeflow / Raycast) */}
-      <div className="floating-nav-wrap">
-        <header className="floating-nav">
-          <div className="brand-cluster">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="brand-mark">P</span>
-              <span style={{ fontWeight: 700 }}>PHALANX</span>
-            </Link>
-            <span className="chip obsidian">PayPal Sandbox</span>
-          </div>
-
-          <nav className="nav-links" aria-label="Landing navigation" ref={navRef}>
-            <span className="nav-pill" aria-hidden="true" />
-            <a href="#product" className="nav-link">
-              Product
-            </a>
-            <a href="#swarm" className="nav-link">
-              How it works
-            </a>
-            <a href="#demo-cases" className="nav-link">
-              Demo cases
-            </a>
-            <Link href="/guide" className="nav-link">
-              Guide
-            </Link>
-          </nav>
-
-          <div className="actions">
-            <Link className="btn primary" href="/dashboard">
-              Open the Workbench →
-            </Link>
-          </div>
-        </header>
-      </div>
+      <CommandBar
+        envMode="seeded"
+        links={[
+          { href: "#product", label: "Product" },
+          { href: "#swarm", label: "How it works" },
+          { href: "#demo-cases", label: "Demo cases" },
+          { href: "/guide", label: "Guide" },
+        ]}
+        actions={
+          <Link className="btn primary" href="/dashboard">
+            Open the Workbench →
+          </Link>
+        }
+      />
 
       <main>
         {/* 2. Hero — Prompt-First (Perplexity / Retool) */}
@@ -253,32 +233,10 @@ export default function LandingPage() {
             </div>
 
             <div className="skeleton-visual">
-              <div className="swarm-grid">
-                <div className="swarm-step-card spotlight lift">
-                  <span className="swarm-step-tag">Step 1 · Ingest</span>
-                  <h3 className="swarm-step-title">Hound</h3>
-                  <span className="step-tip">Retrieves tracking, invoices and merchant logs — never invents an artifact.</span>
-                  <p className="swarm-step-role">Gathers carrier tracking, signed receipts, and order invoices. Re-fetches deep records if jurors name proof gaps.</p>
-                </div>
-                <div className="swarm-step-card spotlight lift">
-                  <span className="swarm-step-tag">Step 2 · Draft</span>
-                  <h3 className="swarm-step-title">Prosecutor</h3>
-                  <span className="step-tip">Drafts the rebuttal strictly from verifiable artifacts.</span>
-                  <p className="swarm-step-role">Drafts factual rebuttal letters tied strictly to verifiable artifacts. Never invents facts or hallucinates dollar figures.</p>
-                </div>
-                <div className="swarm-step-card spotlight lift">
-                  <span className="swarm-step-tag">Step 3 · Audit</span>
-                  <h3 className="swarm-step-title">3-Juror Jury</h3>
-                  <span className="step-tip">Evidence, Policy and Buyer-Sympathy jurors audit the draft; a 2/3 quorum names the gaps.</span>
-                  <p className="swarm-step-role">Evidence Juror, Policy Juror, and Buyer-Sympathy Juror critique the draft in parallel, enforcing a 2/3 quorum on named gaps.</p>
-                </div>
-                <div className="swarm-step-card spotlight lift">
-                  <span className="swarm-step-tag">Step 4 · Route</span>
-                  <h3 className="swarm-step-title">Arbiter</h3>
-                  <span className="step-tip">Routes fight, offer or concede from the deterministic 0–100 score.</span>
-                  <p className="swarm-step-role">Evaluates deterministic checklist score (0–100). Routes provide-evidence (≥75), make-offer (35–74), or accept-claim (&lt;35).</p>
-                </div>
-              </div>
+              <SwarmPipeline />
+              <p className="pipeline-legend">
+                Six deterministic stages — Hound gathers, Prosecutor drafts, Red-Team attacks, the 3-juror quorum names gaps, Judge frames, Arbiter routes from the 0–100 checklist score.
+              </p>
 
               {/* Debate Transcript Fragment */}
               <div style={{ marginTop: 24, padding: 18, background: "var(--bg-muted)", borderRadius: "var(--radius-tag)", border: "1px solid var(--border-hairline)" }}>

@@ -7,6 +7,13 @@
 
 const BASE = process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
 
+/** Resolved PayPal base URL (Sandbox default). The execute gate refuses
+ *  any base that is not a *.sandbox.paypal.com host — production is never
+ *  callable from PHALANX. */
+export function paypalBaseUrl(): string {
+  return BASE;
+}
+
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 export function paypalConfigured(): boolean {
@@ -109,6 +116,102 @@ export async function getPayPalDispute(id: string) {
     );
   }
   return res.json();
+}
+
+export interface PayPalActionResult {
+  ok: boolean;
+  status: number;
+  debugId: string | null;
+  body: unknown;
+}
+
+async function actionResult(res: Response): Promise<PayPalActionResult> {
+  const text = await res.text().catch(() => "");
+  let body: unknown = text;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    /* keep raw text */
+  }
+  return {
+    ok: res.ok,
+    status: res.status,
+    debugId: res.headers.get("paypal-debug-id"),
+    body,
+  };
+}
+
+/**
+ * POST /v1/customer/disputes/{id}/provide-evidence — multipart (Phase 0
+ * row 2): an `input` JSON part (evidences[] with evidence_type +
+ * evidence_info) plus the PDF dossier as file part `file1`. The structured
+ * evidences[] JSON is the primary payload; the PDF is the attachment.
+ * Sandbox only — the execute gate refuses non-sandbox base URLs first.
+ */
+export async function provideEvidence(
+  disputeId: string,
+  evidences: Array<{
+    evidence_type: string;
+    evidence_info?: Record<string, unknown>;
+  }>,
+  pdfBytes: Uint8Array,
+): Promise<PayPalActionResult> {
+  const form = new FormData();
+  form.append("input", JSON.stringify({ evidences }));
+  form.append(
+    "file1",
+    new Blob([pdfBytes as unknown as BlobPart], {
+      type: "application/pdf",
+    }),
+    `phalanx-dossier-${disputeId}.pdf`,
+  );
+  const res = await paypalFetch(
+    `/v1/customer/disputes/${encodeURIComponent(disputeId)}/provide-evidence`,
+    { method: "POST", body: form },
+  );
+  return actionResult(res);
+}
+
+/** POST /v1/customer/disputes/{id}/make-offer — partial refund offer.
+ *  offer_type REFUND: buyer keeps the item. */
+export async function makeOffer(
+  disputeId: string,
+  offerAmount: { currency_code: string; value: string },
+  note?: string,
+): Promise<PayPalActionResult> {
+  const res = await paypalFetch(
+    `/v1/customer/disputes/${encodeURIComponent(disputeId)}/make-offer`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        offer_type: "REFUND",
+        offer_amount: offerAmount,
+        ...(note ? { note } : {}),
+      }),
+    },
+  );
+  return actionResult(res);
+}
+
+/** POST /v1/customer/disputes/{id}/accept-claim — accept the claim.
+ *  accept_claim_type comes from the dispute's allowed_response_options
+ *  (REFUND is the only type the arbiter ever approves). */
+export async function acceptClaim(
+  disputeId: string,
+  acceptClaimType: string,
+  note?: string,
+): Promise<PayPalActionResult> {
+  const res = await paypalFetch(
+    `/v1/customer/disputes/${encodeURIComponent(disputeId)}/accept-claim`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        accept_claim_type: acceptClaimType,
+        ...(note ? { note } : {}),
+      }),
+    },
+  );
+  return actionResult(res);
 }
 
 export interface WebhookVerificationInput {

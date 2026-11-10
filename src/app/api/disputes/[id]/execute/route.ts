@@ -1,16 +1,40 @@
 import { NextResponse } from "next/server";
-import { getApproval, getDispute, getExecution, latestRun, setExecution } from "@/lib/store";
-import { checkOfferAcceptTypes, stageGate } from "@/lib/arbiter";
+import {
+  getApproval,
+  getArtifacts,
+  getAttachedEvidence,
+  getDispute,
+  getExecution,
+  latestRun,
+  setExecution,
+} from "@/lib/store";
+import {
+  acceptClaim,
+  getPayPalDispute,
+  makeOffer,
+  paypalBaseUrl,
+  paypalConfigured,
+  provideEvidence,
+} from "@/lib/paypal";
+import { buildProvideEvidenceInput, decideExecute } from "@/lib/execute-gate";
+import { buildEvidencePdf } from "@/lib/pdf";
+import { computeOfferAmount } from "@/lib/scorer";
 
 /**
  * POST /api/disputes/{id}/execute — executes the approved action once.
  *
- * HARD LIMIT FOR THIS RUN (basics, steps 1–4): NO live Sandbox execution.
- * This endpoint therefore refuses in every case today, and logs each
- * refusal — including the negative test "execute without approval".
- * The live PayPal call (provide-evidence / make-offer / accept-claim,
- * idempotency key = dispute ID + approved action + approval ID) lands in
- * build step 5, only after Dhyey confirms Sandbox accounts exist.
+ * SANDBOX ONLY. The gate (src/lib/execute-gate.ts, pure + unit-checked)
+ * refuses in this order, before any network call: no approval (403),
+ * stage blocked (409), disallowed action (409), offer/accept type
+ * mismatch (409), action mismatch (409), duplicate execution (409),
+ * stale approval (409), seeded dispute (409, logged refusal — never
+ * calls PayPal for SIMULATED rows), non-sandbox base URL (409),
+ * PayPal not configured (409). Only a gated sandbox dispute reaches the
+ * live PayPal call below (provide-evidence / make-offer / accept-claim),
+ * with idempotency key = dispute ID + approved action + approval ID.
+ * A failed PayPal call records FAILED (not EXECUTED) so a retry is
+ * possible; a 2xx records EXECUTED with the PayPal debug id and a
+ * best-effort follow-up dispute status.
  */
 export async function POST(
   req: Request,
@@ -22,153 +46,193 @@ export async function POST(
     return NextResponse.json({ error: "dispute not found" }, { status: 404 });
   }
 
-  // Negative test 1: no approval → refuse.
-  const approval = getApproval(id);
-  if (!approval) {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: APPROVAL_REQUIRED — no human approval on record.`,
-    );
-    return NextResponse.json(
-      {
-        error: "APPROVAL_REQUIRED",
-        detail:
-          "Execute refused: no human approval exists for this dispute. Approve first.",
-      },
-      { status: 403 },
-    );
-  }
-
-  // Stage gate (Phase 0 row 4): the dispute must be waiting for the seller.
-  const gate = stageGate(dispute);
-  if (!gate.ok) {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: STAGE_BLOCKED — ${gate.blocker}`,
-    );
-    return NextResponse.json(
-      {
-        error: "STAGE_BLOCKED",
-        detail: gate.blocker,
-        allowed_actions: dispute.allowed_actions,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Disallowed-action check: the approved action must still be allowed on
-  // the live dispute. Refuses WITH the allowed list shown.
-  if (!dispute.allowed_actions.includes(approval.action)) {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: DISALLOWED_ACTION — approved ${approval.action} is not in allowed actions [${dispute.allowed_actions.join(", ")}].`,
-    );
-    return NextResponse.json(
-      {
-        error: "DISALLOWED_ACTION",
-        detail: `Execute refused: approved action (${approval.action}) is not allowed on this dispute.`,
-        allowed_actions: dispute.allowed_actions,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Offer/accept TYPE re-check: approve verified the type, but the live
-  // dispute's allowed_response_options may have changed since (finding #7).
-  // Re-check at execution time; a type the live response now excludes
-  // refuses, same as a disallowed action.
-  const typeError = checkOfferAcceptTypes(dispute, approval.action);
-  if (typeError) {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: DISALLOWED_ACTION_TYPE — ${typeError}`,
-    );
-    return NextResponse.json(
-      {
-        error: "DISALLOWED_ACTION",
-        detail: `Execute refused: ${typeError}`,
-        allowed_response_options: dispute.allowed_response_options,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Action-mismatch check (adopted from Gemini package review): if the
-  // caller names an action, it must be the approved one.
   const body = (await req.json().catch(() => ({}))) as { action?: string };
-  if (body.action && body.action !== approval.action) {
+  const approval = getApproval(id);
+  const decision = decideExecute({
+    dispute,
+    approval: approval ?? null,
+    existingExecution: getExecution(id) ?? null,
+    latestRun: latestRun(id) ?? null,
+    requestedAction: body.action,
+    paypalBaseUrl: paypalBaseUrl(),
+    paypalConfigured: paypalConfigured(),
+  });
+
+  if (!decision.ok) {
     console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: ACTION_MISMATCH — approved ${approval.action}, requested ${body.action}.`,
+      `[PHALANX] EXECUTE REFUSED ${id}: ${decision.error} — ${decision.detail}`,
     );
+    // Seeded refusal: record the NOT_EXECUTED record (idempotency key)
+    // exactly as before, so the refusal is auditable in the ledger.
+    if (decision.error === "LIVE_EXECUTION_NOT_ENABLED" && approval) {
+      const record = {
+        dispute_id: id,
+        approved_action: approval.action,
+        approved_by: approval.approved_by,
+        approved_at: approval.approved_at,
+        paypal_status: "NOT_EXECUTED",
+        paypal_debug_id: null,
+        idempotency_key: `${id}:${approval.action}:${approval.id}`,
+        follow_up_detail_status: null,
+        note: decision.detail,
+      };
+      setExecution(record);
+      return NextResponse.json(
+        { error: decision.error, detail: decision.detail, record },
+        { status: decision.status },
+      );
+    }
     return NextResponse.json(
       {
-        error: "ACTION_MISMATCH",
-        detail: `Execute refused: approved action (${approval.action}) does not match requested execution (${body.action}).`,
+        error: decision.error,
+        detail: decision.detail,
+        ...(decision.allowed_actions
+          ? { allowed_actions: decision.allowed_actions }
+          : {}),
+        ...(decision.allowed_response_options
+          ? { allowed_response_options: decision.allowed_response_options }
+          : {}),
       },
-      { status: 409 },
+      { status: decision.status },
     );
   }
 
-  // Duplicate-execution check (idempotency key = dispute + action + approval).
-  const existing = getExecution(id);
-  if (existing && existing.paypal_status === "EXECUTED") {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: DUPLICATE_EXECUTION — idempotency key ${existing.idempotency_key} already executed.`,
-    );
-    return NextResponse.json(
-      {
-        error: "DUPLICATE_EXECUTION",
-        detail: `Execute refused: idempotency key ${existing.idempotency_key} has already been executed.`,
-      },
-      { status: 409 },
-    );
-  }
-
-  // Approval must belong to the latest run (stale approvals refuse).
+  // Gate passed — approval is non-null here by construction.
+  const approved = approval!;
   const run = latestRun(id);
-  if (!run || run.id !== approval.run_id) {
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: STALE_APPROVAL — approval ${approval.id} is not for the latest swarm run.`,
-    );
-    return NextResponse.json(
-      {
-        error: "STALE_APPROVAL",
-        detail: "Execute refused: approval is stale (a newer swarm run exists). Re-approve.",
-      },
-      { status: 409 },
-    );
-  }
+  const idempotencyKey = `${id}:${approved.action}:${approved.id}`;
+  const note = `PHALANX swarm execution (approved by ${approved.approved_by} at ${approved.approved_at}).`;
 
-  // Negative test 2 (this run): seeded disputes are simulated — there is no
-  // live PayPal dispute to act on, and live execution is out of scope until
-  // step 5 / Sandbox confirmation.
-  if (dispute.source === "seeded") {
+  try {
+    let result: { ok: boolean; status: number; debugId: string | null };
+    if (approved.action === "provide-evidence") {
+      const artifacts = getArtifacts(id);
+      const attached = getAttachedEvidence(id);
+      const pdfBytes = await buildEvidencePdf(
+        dispute,
+        artifacts,
+        run ?? null,
+        attached,
+      );
+      const { evidences } = buildProvideEvidenceInput(dispute, artifacts);
+      result = await provideEvidence(id, evidences, pdfBytes);
+    } else if (approved.action === "make-offer") {
+      const offerAmount =
+        approved.offer_amount ??
+        (run
+          ? {
+              currency_code: dispute.amount.currency_code,
+              value: computeOfferAmount(
+                run.score,
+                parseFloat(dispute.amount.value),
+              ).offerUsd.toFixed(2),
+            }
+          : null);
+      if (!offerAmount) {
+        return NextResponse.json(
+          {
+            error: "OFFER_AMOUNT_MISSING",
+            detail: "Execute refused: no offer amount on the approval.",
+          },
+          { status: 409 },
+        );
+      }
+      result = await makeOffer(id, offerAmount, note);
+    } else if (approved.action === "accept-claim") {
+      const types =
+        dispute.allowed_response_options?.accept_claim?.accept_claim_types;
+      const claimType =
+        types && types.length > 0 ? types[0] : "REFUND";
+      result = await acceptClaim(id, claimType, note);
+    } else {
+      return NextResponse.json(
+        {
+          error: "DISALLOWED_ACTION",
+          detail: `Execute refused: approved action (${approved.action}) is not a supported PayPal execution action.`,
+          allowed_actions: dispute.allowed_actions,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (!result.ok) {
+      const record = {
+        dispute_id: id,
+        approved_action: approved.action,
+        approved_by: approved.approved_by,
+        approved_at: approved.approved_at,
+        paypal_status: "FAILED",
+        paypal_debug_id: result.debugId,
+        idempotency_key: idempotencyKey,
+        follow_up_detail_status: null,
+        note: `PayPal Sandbox rejected the ${approved.action} call: HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"}). Not marked EXECUTED — retry is possible.`,
+      };
+      setExecution(record);
+      console.warn(
+        `[PHALANX] EXECUTE FAILED ${id}: PayPal HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"}).`,
+      );
+      return NextResponse.json(
+        {
+          error: "PAYPAL_EXECUTION_FAILED",
+          detail: record.note,
+          debug_id: result.debugId,
+          record,
+        },
+        { status: 502 },
+      );
+    }
+
+    // Success: best-effort re-fetch for the follow-up dispute status.
+    // A re-fetch failure never turns a successful execution into an error.
+    let followUp: string | null = null;
+    try {
+      const detail = (await getPayPalDispute(id)) as Record<string, unknown>;
+      followUp =
+        typeof detail.status === "string" ? detail.status : null;
+    } catch {
+      followUp = null;
+    }
     const record = {
       dispute_id: id,
-      approved_action: approval.action,
-      approved_by: approval.approved_by,
-      approved_at: approval.approved_at,
-      paypal_status: "NOT_EXECUTED",
-      paypal_debug_id: null,
-      idempotency_key: `${id}:${approval.action}:${approval.id}`,
-      follow_up_detail_status: null,
-      note: "REFUSED: seeded (SIMULATED) dispute — no live PayPal dispute exists to act on. Live execution is build step 5, after Sandbox accounts are confirmed.",
+      approved_action: approved.action,
+      approved_by: approved.approved_by,
+      approved_at: approved.approved_at,
+      paypal_status: "EXECUTED",
+      paypal_debug_id: result.debugId,
+      idempotency_key: idempotencyKey,
+      follow_up_detail_status: followUp,
+      note: `Executed ${approved.action} on PayPal Sandbox (debug id: ${result.debugId ?? "n/a"}).`,
     };
     setExecution(record);
-    console.warn(
-      `[PHALANX] EXECUTE REFUSED ${id}: LIVE_EXECUTION_NOT_ENABLED — seeded dispute, no Sandbox execution in this run. Idempotency key ${record.idempotency_key} recorded.`,
-    );
+    return NextResponse.json({
+      ok: true,
+      paypal_status: "EXECUTED",
+      debug_id: result.debugId,
+      follow_up_detail_status: followUp,
+      record,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const record = {
+      dispute_id: id,
+      approved_action: approved.action,
+      approved_by: approved.approved_by,
+      approved_at: approved.approved_at,
+      paypal_status: "FAILED",
+      paypal_debug_id: null,
+      idempotency_key: idempotencyKey,
+      follow_up_detail_status: null,
+      note: `PayPal Sandbox call failed before a response: ${message}. Not marked EXECUTED — retry is possible.`,
+    };
+    setExecution(record);
+    console.warn(`[PHALANX] EXECUTE FAILED ${id}: ${message}`);
     return NextResponse.json(
-      { error: "LIVE_EXECUTION_NOT_ENABLED", detail: record.note, record },
-      { status: 409 },
+      {
+        error: "PAYPAL_EXECUTION_FAILED",
+        detail: record.note,
+        record,
+      },
+      { status: 502 },
     );
   }
-
-  // Live Sandbox disputes: also refused in this run (no Sandbox accounts yet).
-  console.warn(
-    `[PHALANX] EXECUTE REFUSED ${id}: LIVE_EXECUTION_NOT_ENABLED — live execution is build step 5.`,
-  );
-  return NextResponse.json(
-    {
-      error: "LIVE_EXECUTION_NOT_ENABLED",
-      detail: "Live Sandbox execution is not enabled in this run (build step 5).",
-    },
-    { status: 409 },
-  );
 }
