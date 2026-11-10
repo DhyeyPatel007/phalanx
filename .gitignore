@@ -5,3 +5,6 @@ test-results/
 .env*.local
 *.log
 .DS_Store
+
+# TypeScript build info (local only)
+*.tsbuildinfo

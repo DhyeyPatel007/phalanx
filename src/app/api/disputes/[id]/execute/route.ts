@@ -104,7 +104,12 @@ export async function POST(
   const note = `PHALANX swarm execution (approved by ${approved.approved_by} at ${approved.approved_at}).`;
 
   try {
-    let result: { ok: boolean; status: number; debugId: string | null };
+    let result: {
+      ok: boolean;
+      status: number;
+      debugId: string | null;
+      body?: unknown;
+    };
     if (approved.action === "provide-evidence") {
       const artifacts = getArtifacts(id);
       const attached = getAttachedEvidence(id);
@@ -156,6 +161,19 @@ export async function POST(
     }
 
     if (!result.ok) {
+      // Surface PayPal's own error body (name / message / details) —
+      // the HTTP status alone never explains a 400 (e.g. a claim type
+      // the dispute does not support, or an action not permitted in
+      // the current life-cycle stage). Keep it in the record note and
+      // the response so the merchant — and the audit log — see why.
+      const paypalBody =
+        typeof result.body === "object" && result.body !== null
+          ? (result.body as Record<string, unknown>)
+          : null;
+      const paypalMessage =
+        (typeof paypalBody?.message === "string" ? paypalBody.message : null) ??
+        (typeof paypalBody?.name === "string" ? paypalBody.name : null) ??
+        null;
       const record = {
         dispute_id: id,
         approved_action: approved.action,
@@ -165,17 +183,18 @@ export async function POST(
         paypal_debug_id: result.debugId,
         idempotency_key: idempotencyKey,
         follow_up_detail_status: null,
-        note: `PayPal Sandbox rejected the ${approved.action} call: HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"}). Not marked EXECUTED — retry is possible.`,
+        note: `PayPal Sandbox rejected the ${approved.action} call: HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"})${paypalMessage ? ` — ${paypalMessage}` : ""}. Not marked EXECUTED — retry is possible.`,
       };
       setExecution(record);
       console.warn(
-        `[PHALANX] EXECUTE FAILED ${id}: PayPal HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"}).`,
+        `[PHALANX] EXECUTE FAILED ${id}: PayPal HTTP ${result.status} (debug id: ${result.debugId ?? "n/a"}). Body: ${JSON.stringify(result.body ?? null)}`,
       );
       return NextResponse.json(
         {
           error: "PAYPAL_EXECUTION_FAILED",
           detail: record.note,
           debug_id: result.debugId,
+          paypal_error: result.body ?? null,
           record,
         },
         { status: 502 },
