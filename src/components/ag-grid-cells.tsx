@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { themeQuartz } from "ag-grid-community";
 import type { Verdict } from "@/lib/types";
+import styles from "./dashboard.module.css";
 
 export const phalanxGridTheme = themeQuartz.withParams({
   backgroundColor: "#FFFFFF",
@@ -151,7 +152,7 @@ export function VerdictBadgeCell(p: {
 
 export function ActionHoverCell(p: { data: { id: string } }) {
   return (
-    <a className="ag-action-btn" href={`/disputes/${p.data.id}`}>
+    <a className={`ag-action-btn ${styles.actionLink}`} href={`/disputes/${p.data.id}`}>
       Open Defense Studio <span aria-hidden="true">→</span>
     </a>
   );

@@ -1,0 +1,169 @@
+/* Premium detail-studio shell — same tokens as the dashboard module:
+   hairlines, tabular numerals, colour = meaning only, spring physics
+   on every control. These classes only ADD to the global studio
+   classes; no layout or data wiring is changed here. */
+
+/* Fade-only entrance for SpotlightCard surfaces: the card's inline
+   transform (hover lift) must not be overridden by an animation fill,
+   so this variant animates opacity only. */
+.fadeReveal {
+  animation: studioFade 480ms ease both;
+}
+
+@keyframes studioFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.reveal {
+  animation: studioReveal 480ms var(--ease-out-expo) both;
+}
+
+@keyframes studioReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Magnetic primary action: lift on hover, press to 0.97 on active. */
+.magnetic {
+  transition:
+    transform 220ms var(--ease-out-expo),
+    box-shadow 220ms ease,
+    background-color 160ms ease;
+  will-change: transform;
+}
+
+.magnetic:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.magnetic:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 90ms;
+}
+
+/* Danger action gets the same press physics, no extra colour. */
+.press {
+  transition: transform 180ms var(--ease-out-expo), opacity 160ms ease;
+}
+
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 90ms;
+}
+
+/* Breadcrumb: quiet link that darkens + slides its arrow on hover. */
+.crumb {
+  transition: color 160ms ease;
+}
+
+.crumb:hover {
+  color: var(--text-ink);
+}
+
+/* Verdict header card: hairline that deepens on hover; the
+   SpotlightCard cursor glow still does the heavy lifting. */
+.headerCard {
+  border: 1px solid var(--border-hairline);
+  transition: border-color 220ms ease;
+}
+
+.headerCard:hover {
+  border-color: var(--border-medium);
+}
+
+/* Reason rows: hover wash + point badge holds tabular numerals. */
+.reasonRow {
+  transition: background-color 160ms ease, transform 200ms var(--ease-out-expo);
+}
+
+.reasonRow:hover {
+  background-color: var(--bg-muted);
+}
+
+/* Gap cards: lift 2px + border deepens; the cross-pane highlight
+   state is still driven by the parent's highlightedEvidenceType. */
+.gapCard {
+  transition:
+    transform 220ms var(--ease-out-expo),
+    border-color 200ms ease,
+    box-shadow 220ms ease;
+}
+
+.gapCard:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-medium);
+}
+
+/* Debate toggle: full-width quiet button, chevron rotates on open
+   (rotation is in globals); hover wash only. */
+.debateToggle {
+  transition: background-color 160ms ease;
+}
+
+.debateToggle:hover {
+  background-color: var(--bg-muted);
+}
+
+/* Springy debate filter pills. */
+.debatePill {
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.debatePill:hover {
+  transform: translateY(-1px);
+}
+
+.debatePill:active {
+  transform: scale(0.96);
+}
+
+/* Approval gate: unlocked state glows emerald at the hairline only —
+   the lock state, labels and handlers are untouched. */
+.gate {
+  transition: border-color 240ms ease, box-shadow 240ms ease;
+}
+
+/* Evidence vault dropzone: border tightens on drag-over (the
+   .dragging class still comes from the vault's own state). */
+.dropzone {
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+/* Vault item rows: hover wash + Remove button darkens on hover. */
+.vaultItem {
+  transition: background-color 160ms ease;
+}
+
+.vaultItem:hover {
+  background-color: var(--bg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .fadeReveal {
+    animation: none;
+  }
+  .magnetic,
+  .press,
+  .reasonRow,
+  .gapCard,
+  .debatePill {
+    transition: none;
+  }
+  .magnetic:hover:not(:disabled),
+  .gapCard:hover,
+  .debatePill:hover {
+    transform: none;
+  }
+}

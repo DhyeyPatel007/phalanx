@@ -12,6 +12,7 @@
 import { useMemo } from "react";
 import { useAnimatedNumber } from "@/lib/use-animated-number";
 import { AnimatedCounter, SpotlightCard } from "./ui/micro-interactions";
+import styles from "./dashboard.module.css";
 import type { Dispute, SwarmRun } from "@/lib/types";
 
 export default function BentoKpis({
@@ -63,7 +64,7 @@ export default function BentoKpis({
 
   return (
     <section className="bento-kpis bento-kpis-new" aria-label="Dispute metrics">
-      <SpotlightCard className="bento-tile">
+      <SpotlightCard className={`bento-tile ${styles.tile} ${styles.fadeReveal}`}>
         <div className="bento-label">Total Disputed Volume</div>
         <div className="bento-value">
           <AnimatedCounter value={animatedTotal} prefix="$" decimals={2} />
@@ -96,7 +97,7 @@ export default function BentoKpis({
         </div>
       </SpotlightCard>
 
-      <SpotlightCard className="bento-tile">
+      <SpotlightCard className={`bento-tile ${styles.tile} ${styles.fadeReveal}`}>
         <div className="bento-label">Deterministic Contest Score</div>
         <div className="bento-value">
           {caseARun && caseABase !== undefined && caseAFinal !== undefined ? (
@@ -125,7 +126,7 @@ export default function BentoKpis({
         </div>
       </SpotlightCard>
 
-      <SpotlightCard className="bento-tile">
+      <SpotlightCard className={`bento-tile ${styles.tile} ${styles.fadeReveal}`}>
         <div className="bento-label">Juror Noise Compression</div>
         <div className="bento-value">
           {latestRun ? (
@@ -156,7 +157,7 @@ export default function BentoKpis({
         </div>
       </SpotlightCard>
 
-      <SpotlightCard className="bento-tile">
+      <SpotlightCard className={`bento-tile ${styles.tile} ${styles.fadeReveal}`}>
         <div className="bento-label">Cryptographic PDF Dossiers</div>
         <div className="bento-value">
           <AnimatedCounter value={animatedDossiers} />

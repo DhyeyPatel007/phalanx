@@ -24,6 +24,7 @@ import type {
 import { useSpotlight } from "@/lib/ui-effects";
 import CommandNavbar from "@/components/command-navbar";
 import EvidenceVault from "@/components/evidence-vault";
+import styles from "@/components/detail.module.css";
 import {
   AnimatedCounter,
   CopyChip,
@@ -318,7 +319,7 @@ export default function DisputeDetailPage() {
           <div className="callout error">
             {error || `Dispute ${id} not found.`}
           </div>
-          <Link className="btn" href="/dashboard">
+          <Link className={`btn ${styles.magnetic}`} href="/dashboard">
             ← Return to Dispute Ledger
           </Link>
         </main>
@@ -432,7 +433,7 @@ export default function DisputeDetailPage() {
 
       <main className="detail-wrap">
         <div className="breadcrumb-bar">
-          <Link href="/dashboard" className="breadcrumb-link">
+          <Link href="/dashboard" className={`breadcrumb-link ${styles.crumb}`}>
             All disputes
           </Link>
           <span className="breadcrumb-separator">/</span>
@@ -462,7 +463,7 @@ export default function DisputeDetailPage() {
         <div className="detail-split">
           <div className="detail-split-left">
             {/* Verdict hero card */}
-            <SpotlightCard className="detail-header-card">
+            <SpotlightCard className={`detail-header-card ${styles.headerCard} ${styles.fadeReveal}`}>
               <div className="detail-header-top">
                 <div className="detail-title-cluster">
                   <h1 className="font-mono detail-title">
@@ -538,7 +539,7 @@ export default function DisputeDetailPage() {
 
                 <div className="detail-header-actions">
                   <button
-                    className="primary"
+                    className={`primary ${styles.magnetic}`}
                     onClick={() => runSwarm(detail.dispute.id)}
                     disabled={loading}
                   >
@@ -549,7 +550,7 @@ export default function DisputeDetailPage() {
                         : "Run Swarm"}
                   </button>
                   <a
-                    className="pdf-link"
+                    className={`pdf-link ${styles.magnetic}`}
                     href={`/api/disputes/${detail.dispute.id}/evidence.pdf`}
                     target="_blank"
                     rel="noreferrer"
@@ -574,7 +575,7 @@ export default function DisputeDetailPage() {
             )}
 
             {/* Why this verdict — 2–3 practical reasons */}
-            <SpotlightCard className="reasons-card">
+            <SpotlightCard className={`reasons-card ${styles.fadeReveal}`}>
               <h3 className="studio-h3">
                 Why This Verdict (Deterministic Checklist Findings)
               </h3>
@@ -585,7 +586,7 @@ export default function DisputeDetailPage() {
                     return (
                       <li
                         key={i}
-                        className="reason-row stagger-item"
+                        className={`reason-row stagger-item ${styles.reasonRow}`}
                         style={{ animationDelay: `${i * 70}ms` }}
                       >
                         <span
@@ -617,7 +618,7 @@ export default function DisputeDetailPage() {
             </SpotlightCard>
 
             {/* Named gaps grid (max 3) with cross-pane hover sync */}
-            <div className="card-white gaps-card">
+            <div className={`card-white gaps-card ${styles.reveal}`}>
               <div className="gaps-head">
                 <h3 className="studio-h3">Named Gaps &amp; Actionable Fixes</h3>
                 <span className="chip">{namedGaps.length} Unresolved</span>
@@ -633,7 +634,7 @@ export default function DisputeDetailPage() {
                   {namedGaps.slice(0, 3).map((g, gi) => (
                     <SpotlightCard
                       key={g.code}
-                      className={`gap-card stagger-item${highlightedEvidenceType === g.recommendedEvidenceType ? " highlighted" : ""}`}
+                      className={`gap-card stagger-item ${styles.gapCard} ${styles.fadeReveal}${highlightedEvidenceType === g.recommendedEvidenceType ? " highlighted" : ""}`}
                       onMouseEnter={() =>
                         setHighlightedEvidenceType(g.recommendedEvidenceType)
                       }
@@ -671,10 +672,10 @@ export default function DisputeDetailPage() {
             </div>
 
             {/* Collapsible full debate transcript */}
-            <div className="card-white debate-card">
+            <div className={`card-white debate-card ${styles.reveal}`}>
               <button
                 type="button"
-                className="btn debate-toggle"
+                className={`btn debate-toggle ${styles.debateToggle}`}
                 onClick={() => setShowFullDebate(!showFullDebate)}
                 aria-expanded={showFullDebate}
               >
@@ -805,7 +806,7 @@ export default function DisputeDetailPage() {
                             type="button"
                             role="tab"
                             aria-selected={debateFilter === key}
-                            className={`debate-filter-pill${debateFilter === key ? " active" : ""}`}
+                            className={`debate-filter-pill ${styles.debatePill}${debateFilter === key ? " active" : ""}`}
                             onClick={() => setDebateFilter(key)}
                           >
                             {label}
@@ -853,7 +854,7 @@ export default function DisputeDetailPage() {
             />
 
             {/* Prosecutor rebuttal preview */}
-            <div className="card-white rebuttal-card">
+            <div className={`card-white rebuttal-card ${styles.reveal}`}>
               <div className="rebuttal-head">
                 <h3 className="studio-h3">Prosecutor Rebuttal Preview</h3>
                 {latestRebuttal && (
@@ -878,7 +879,7 @@ export default function DisputeDetailPage() {
             {/* Hardware-style mandatory human approval gate */}
             {run && (
               <div
-                className={`approval-gate-card${gateUnlocked ? " unlocked" : ""}${justApproved ? " gate-just-approved" : ""}`}
+                className={`approval-gate-card ${styles.gate}${gateUnlocked ? " unlocked" : ""}${justApproved ? " gate-just-approved" : ""}`}
               >
                 <div className="approval-gate-header">
                   <h3>
@@ -967,14 +968,14 @@ export default function DisputeDetailPage() {
 
                 <div className="gate-actions">
                   <button
-                    className="primary"
+                    className={`primary ${styles.magnetic}`}
                     onClick={() => approve(detail.dispute.id, actionForVerdict)}
                     disabled={!isApproveAllowed || loading}
                   >
                     Approve {actionForVerdict}
                   </button>
                   <button
-                    className="danger"
+                    className={`danger ${styles.press}`}
                     onClick={() => execute(detail.dispute.id)}
                     disabled={!isExecuteAllowed || loading}
                   >

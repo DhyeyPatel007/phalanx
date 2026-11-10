@@ -6,6 +6,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import styles from "./dashboard.module.css";
 
 interface WebhookLogEntry {
   at: string;
@@ -33,7 +34,7 @@ export default function AuditLog() {
   }, []);
 
   return (
-    <section id="audit" className="card-white audit-log-section">
+    <section id="audit" className={`card-white audit-log-section ${styles.shell}`}>
       <h2 className="audit-log-title">Webhook &amp; Audit Log</h2>
       <p className="footnote">
         PayPal webhook endpoint:{" "}
@@ -54,7 +55,11 @@ export default function AuditLog() {
       ) : (
         <div className="audit-log-list">
           {log.map((entry, i) => (
-            <div key={`${entry.event_id}-${i}`} className="audit-log-row">
+            <div
+              key={`${entry.event_id}-${i}`}
+              className={`audit-log-row ${styles.runRow} ${styles.reveal}`}
+              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+            >
               <span className="font-mono tabular-nums audit-log-time">
                 {entry.at}
               </span>

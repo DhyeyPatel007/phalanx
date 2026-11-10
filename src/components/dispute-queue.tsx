@@ -21,6 +21,7 @@ import {
   VerdictBadgeCell,
   phalanxGridTheme,
 } from "@/components/ag-grid-cells";
+import styles from "./dashboard.module.css";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -197,10 +198,10 @@ export default function DisputeQueue({
   ];
 
   return (
-    <section id="queue" className="ledger-card queue-section">
+    <section id="queue" className={`ledger-card queue-section ${styles.shell}`}>
       <div className="ledger-toolbar">
         <h2 className="queue-title">Dispute Command Queue</h2>
-        <div className="queue-search-wrap">
+        <div className={`queue-search-wrap ${styles.searchGlow}`}>
           <input
             ref={searchRef}
             type="search"
@@ -225,7 +226,7 @@ export default function DisputeQueue({
             type="button"
             role="tab"
             aria-selected={filter === f.key}
-            className={`queue-filter-pill${filter === f.key ? " active" : ""}`}
+            className={`queue-filter-pill ${styles.pill}${filter === f.key ? " active" : ""}`}
             onClick={() => setFilter(f.key)}
           >
             {f.label}
