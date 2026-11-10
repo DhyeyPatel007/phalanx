@@ -15,18 +15,19 @@ import type {
   SwarmRun,
   Verdict,
 } from "@/lib/types";
+import { useNavPill, useSpotlight } from "@/lib/ui-effects";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const phalanxLightGridTheme = themeQuartz.withParams({
   backgroundColor: "#FFFFFF",
-  foregroundColor: "#101828",
-  headerBackgroundColor: "#F9FAFB",
-  headerTextColor: "#475467",
-  borderColor: "rgba(16, 24, 40, 0.08)",
-  rowHoverColor: "#F4F6FB",
-  selectedRowBackgroundColor: "rgba(111, 61, 255, 0.08)",
-  accentColor: "#6F3DFF",
+  foregroundColor: "#09090B",
+  headerBackgroundColor: "#FAFAFA",
+  headerTextColor: "#52525B",
+  borderColor: "rgba(24, 24, 27, 0.08)",
+  rowHoverColor: "#F4F4F5",
+  selectedRowBackgroundColor: "rgba(9, 9, 11, 0.08)",
+  accentColor: "#09090B",
   fontFamily: "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   fontSize: 13,
   headerFontSize: 12,
@@ -72,6 +73,9 @@ function verdictBadge(v: Verdict | null) {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const navRef = useRef<HTMLElement | null>(null);
+  useNavPill(navRef);
+  useSpotlight();
   const [activeTab, setActiveTab] = useState<TabSection>("disputes");
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [runs, setRuns] = useState<Record<string, SwarmRun>>({});
@@ -273,10 +277,11 @@ export default function DashboardPage() {
               <span className="brand-mark">P</span>
               <span>PHALANX</span>
             </Link>
-            <span className="chip ultraviolet">PayPal Sandbox</span>
+            <span className="chip obsidian">PayPal Sandbox</span>
           </div>
 
-          <nav className="nav-links" aria-label="Workbench navigation">
+          <nav className="nav-links" aria-label="Workbench navigation" ref={navRef}>
+            <span className="nav-pill" aria-hidden="true" />
             <Link href="/" className="nav-link">
               Overview
             </Link>
@@ -350,7 +355,7 @@ export default function DashboardPage() {
         {/* 4 Vercel-Style Usage Meter Bars (KPI Discipline) */}
         <section className="grid-2" style={{ gap: 16 }} aria-label="Usage Meters">
           {/* Meter 1: Total Volume */}
-          <div className="meter-card">
+          <div className="meter-card spotlight lift">
             <div className="meter-header">
               <span>TOTAL DISPUTED VOLUME</span>
               <span className="font-mono tabular-nums">{disputes.length} Disputes Active</span>
@@ -370,7 +375,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Meter 2: Capital Defended */}
-          <div className="meter-card">
+          <div className="meter-card spotlight lift">
             <div className="meter-header">
               <span>CAPITAL DEFENDED</span>
               <span className="font-mono tabular-nums">
@@ -394,7 +399,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Meter 3: Dispute Fees Avoided */}
-          <div className="meter-card">
+          <div className="meter-card spotlight lift">
             <div className="meter-header">
               <span>DISPUTE FEES AVOIDED</span>
               <span className="font-mono tabular-nums">US Standard $15/case</span>
@@ -414,7 +419,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Meter 4: Avg Swarm Duration */}
-          <div className="meter-card">
+          <div className="meter-card spotlight lift">
             <div className="meter-header">
               <span>AVG SWARM DURATION</span>
               <span className="font-mono tabular-nums">Target &lt;2,000 ms</span>
@@ -570,6 +575,15 @@ export default function DashboardPage() {
                 columnDefs={columns}
                 theme={phalanxLightGridTheme}
                 defaultColDef={{ resizable: true }}
+                getRowClass={(params) =>
+                  params.data?.verdict === "CONTEST_HARD_PROOF"
+                    ? "verdict-contest"
+                    : params.data?.verdict === "DE_ESCALATE_OFFER"
+                      ? "verdict-offer"
+                      : params.data?.verdict === "CONCEDE_FAST_SETTLE"
+                        ? "verdict-concede"
+                        : ""
+                }
                 rowSelection="single"
                 onRowClicked={(e) => e.data && router.push(`/disputes/${e.data.id}`)}
                 pagination={true}

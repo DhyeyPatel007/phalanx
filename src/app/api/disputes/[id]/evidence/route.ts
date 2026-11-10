@@ -127,6 +127,22 @@ export async function POST(
     fileBuffer = Buffer.from(body.base64Data, "base64");
   }
 
+  // Input sanitization: evidenceType is user-supplied. An unvalidated value
+  // would crash classifyEvidenceQuality (deltaTable lookup) with a 500, so
+  // unknown types fall back to OTHER. fileName is stripped of path
+  // separators and control characters (files are never written to disk).
+  const VALID_EVIDENCE_TYPES: EvidenceType[] = [
+    "INVOICE",
+    "TRACKING_RECEIPT",
+    "DELIVERY_PHOTO",
+    "CARRIER_POD",
+    "MERCHANT_LOG",
+    "EMAIL_CONFIRMATION",
+    "OTHER",
+  ];
+  if (!VALID_EVIDENCE_TYPES.includes(evidenceType)) evidenceType = "OTHER";
+  fileName = fileName.replace(/[\\/<>:"|?*\x00-\x1f]/g, "_").slice(0, 200);
+
   if (!fileBuffer || fileBuffer.length === 0) {
     return NextResponse.json({ error: "File cannot be empty" }, { status: 400 });
   }

@@ -81,9 +81,177 @@ export function artifactsFromDetail(
 }
 
 /**
+ * Status-only patch from a webhook resource. Only fields actually present
+ * in the resource are set — an absent field never wipes a stored value.
+ */
+function patchFromResource(
+  resource: Record<string, unknown>,
+): Partial<Dispute> {
+  const patch: Partial<Dispute> = {};
+  if (typeof resource.status === "string") patch.status = resource.status;
+  if (typeof resource.dispute_life_cycle_stage === "string")
+    patch.dispute_life_cycle_stage = resource.dispute_life_cycle_stage;
+  if (typeof resource.dispute_state === "string")
+    patch.dispute_state = resource.dispute_state;
+  if (Array.isArray(resource.links)) {
+    patch.allowed_actions = (resource.links as { rel?: unknown }[])
+      .map((l) => l.rel)
+      .filter((r): r is string => typeof r === "string" && r !== "self");
+  }
+  if (
+    resource.allowed_response_options &&
+    typeof resource.allowed_response_options === "object"
+  ) {
+    patch.allowed_response_options = resource.allowed_response_options as Dispute["allowed_response_options"];
+  }
+  return patch;
+}
+
+/** Final outcome code from a RESOLVED resource, else the literal "RESOLVED". */
+function outcomeFromResource(resource: Record<string, unknown>): string {
+  if (typeof resource.outcome_code === "string") return resource.outcome_code;
+  const outcome = resource.dispute_outcome;
+  if (
+    outcome &&
+    typeof outcome === "object" &&
+    typeof (outcome as Record<string, unknown>).outcome_code === "string"
+  )
+    return (outcome as Record<string, unknown>).outcome_code as string;
+  if (typeof resource.resolution === "string") return resource.resolution;
+  return "RESOLVED";
+}
+
+/**
+ * Handle CUSTOMER.DISPUTE.UPDATED / CUSTOMER.DISPUTE.RESOLVED.
+ * Deterministic + idempotent (dedupe is checked by the caller before this
+ * runs; the event is marked seen on every terminal outcome below).
+ * Seeded rows: resource fields only, never a live fetch. Sandbox rows:
+ * best-effort live re-fetch; on fetch failure the resource fields are
+ * applied instead and the failure is logged — nothing is wiped.
+ * RESOLVED additionally clears allowed_actions and records the outcome.
+ */
+async function handleDisputeUpdate(
+  eventType: string,
+  eventId: string,
+  resource: Record<string, unknown>,
+  disputeId: string | null,
+  rawResource: unknown,
+): Promise<IngestResult> {
+  const resolved = eventType === "CUSTOMER.DISPUTE.RESOLVED";
+  const verb = resolved ? "RESOLVED" : "UPDATED";
+
+  if (rawResource === undefined || rawResource === null || typeof rawResource !== "object") {
+    markWebhookEvent(eventId);
+    logWebhook({ event_id: eventId, result: `IGNORED_${verb}_NO_RESOURCE`, detail: `${eventType} carried no resource object.` });
+    return { ok: true, ignored: "no resource", event_id: eventId };
+  }
+  if (!disputeId) {
+    markWebhookEvent(eventId);
+    logWebhook({ event_id: eventId, result: `IGNORED_${verb}_NO_DISPUTE_ID`, detail: "resource carried no dispute_id." });
+    return { ok: true, ignored: "no dispute id in resource", event_id: eventId };
+  }
+  const existing = getDispute(disputeId);
+  if (!existing) {
+    markWebhookEvent(eventId);
+    logWebhook({ event_id: eventId, result: `IGNORED_${verb}_UNKNOWN_DISPUTE`, detail: `Dispute ${disputeId} is not in the store; an update alone never creates a row.` });
+    return { ok: true, ignored: "unknown dispute", event_id: eventId };
+  }
+
+  const resolution = resolved
+    ? { outcome: outcomeFromResource(resource), resolved_at: new Date().toISOString() }
+    : undefined;
+
+  // Seeded rows: status fields from the resource only — never live-fetch.
+  if (existing.source === "seeded") {
+    const updated: Dispute = {
+      ...existing,
+      ...patchFromResource(resource),
+      ...(resolved ? { allowed_actions: [], resolution } : {}),
+    };
+    upsertDispute(updated);
+    markWebhookEvent(eventId);
+    logWebhook({
+      event_id: eventId,
+      result: resolved ? "RESOLVED_SEEDED" : "UPDATED_SEEDED",
+      detail:
+        `Dispute ${disputeId} ${verb.toLowerCase()} from resource fields only (seeded row, no live fetch).` +
+        (resolved ? ` Final outcome: ${resolution!.outcome} at ${resolution!.resolved_at}; allowed_actions cleared, Execute locked.` : "") +
+        ` Evidence, runs and approvals untouched.`,
+    });
+    return { ok: true, dispute_id: disputeId, event_id: eventId };
+  }
+
+  // Sandbox rows: best-effort live re-fetch (authoritative). On failure,
+  // fall back to the resource fields — never wipe, never leave unmarked
+  // in a retry loop: the resource-field application is the terminal
+  // outcome for this delivery (a PayPal redelivery re-applies it
+  // idempotently).
+  try {
+    const detail = (await getPayPalDispute(disputeId)) as Record<string, unknown>;
+    const links = (detail.links ?? []) as { rel: string }[];
+    const updated: Dispute = {
+      ...existing,
+      status: (detail.status as string) ?? existing.status,
+      dispute_life_cycle_stage:
+        (detail.dispute_life_cycle_stage as string) ?? existing.dispute_life_cycle_stage,
+      dispute_state: (detail.dispute_state as string) ?? existing.dispute_state,
+      allowed_actions: resolved
+        ? []
+        : links.length > 0
+          ? links.map((l) => l.rel).filter((r) => r !== "self")
+          : existing.allowed_actions,
+      allowed_response_options:
+        (detail.allowed_response_options as Dispute["allowed_response_options"]) ??
+        existing.allowed_response_options,
+      raw_paypal_detail: detail,
+      ...(resolved ? { resolution } : {}),
+    };
+    upsertDispute(updated);
+    markWebhookEvent(eventId);
+    logWebhook({
+      event_id: eventId,
+      result: resolved ? "RESOLVED" : "UPDATED",
+      detail:
+        `Dispute ${disputeId} ${verb.toLowerCase()} from live Sandbox detail (status ${updated.status}).` +
+        (resolved ? ` Final outcome: ${resolution!.outcome} at ${resolution!.resolved_at}; allowed_actions cleared, Execute locked.` : ""),
+    });
+    return { ok: true, dispute_id: disputeId, event_id: eventId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const updated: Dispute = {
+      ...existing,
+      ...patchFromResource(resource),
+      ...(resolved ? { allowed_actions: [], resolution } : {}),
+    };
+    upsertDispute(updated);
+    markWebhookEvent(eventId);
+    logWebhook({
+      event_id: eventId,
+      result: resolved ? "RESOLVED_FETCH_FALLBACK" : "UPDATED_FETCH_FALLBACK",
+      detail:
+        `Live re-fetch failed (${message}); applied ${verb.toLowerCase()} resource fields only, nothing wiped.` +
+        (resolved ? ` Final outcome: ${resolution!.outcome} at ${resolution!.resolved_at}; allowed_actions cleared, Execute locked.` : ""),
+    });
+    return { ok: true, dispute_id: disputeId, event_id: eventId };
+  }
+}
+
+/**
  * Ingest a parsed webhook event that has ALREADY passed verification
  * (or is an explicit demo replay). Fetches live dispute detail when the
  * dispute is not a seeded demo row.
+ *
+ * CUSTOMER.DISPUTE.CREATED creates/refreshes the row from live detail.
+ * CUSTOMER.DISPUTE.UPDATED refreshes status / stage / state / allowed
+ * actions (best-effort live re-fetch for Sandbox rows, resource fields
+ * only for seeded rows). CUSTOMER.DISPUTE.RESOLVED does the same and
+ * additionally records the final outcome, clears allowed_actions (second
+ * lock on Execute — the first is stageGate), and logs the audit time.
+ * Updates NEVER wipe merchant-attached evidence, runs, or approvals:
+ * only the Dispute row itself is replaced via upsertDispute, and the
+ * artifact / run / approval maps are untouched. An update for an unknown
+ * dispute never creates a row. Malformed events are ignored + logged,
+ * never crash, never execute.
  */
 export async function ingestVerifiedEvent(
   event: Record<string, unknown>,
@@ -91,7 +259,11 @@ export async function ingestVerifiedEvent(
 ): Promise<IngestResult> {
   const eventId = (event.id as string | undefined) ?? "unknown-event";
   const eventType = (event.event_type as string | undefined) ?? "unknown";
-  const resource = (event.resource ?? {}) as Record<string, unknown>;
+  const rawResource = event.resource;
+  const resource =
+    (typeof rawResource === "object" && rawResource !== null
+      ? rawResource
+      : {}) as Record<string, unknown>;
   const disputeId = disputeIdFromResource(resource);
 
   if (seenWebhookEvent(eventId)) {
@@ -103,6 +275,13 @@ export async function ingestVerifiedEvent(
   // getPayPalDispute fails transiently, the event stays unmarked so a
   // PayPal redelivery / replay can retry it instead of being dropped
   // forever as a "duplicate".
+
+  if (
+    eventType === "CUSTOMER.DISPUTE.UPDATED" ||
+    eventType === "CUSTOMER.DISPUTE.RESOLVED"
+  ) {
+    return handleDisputeUpdate(eventType, eventId, resource, disputeId, rawResource);
+  }
 
   if (eventType !== "CUSTOMER.DISPUTE.CREATED") {
     markWebhookEvent(eventId);

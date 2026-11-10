@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AttachedEvidence,
   Dispute,
@@ -12,6 +12,7 @@ import type {
   SwarmRun,
   Verdict,
 } from "@/lib/types";
+import { useNavPill, useSpotlight } from "@/lib/ui-effects";
 
 interface DetailData {
   dispute: Dispute;
@@ -55,6 +56,76 @@ function verdictBadge(v: Verdict | null) {
   return <span className={`badge ${cls}`}>{v}</span>;
 }
 
+/** One-click copy: icon morphs to an emerald check with a "Copied"
+ *  tooltip for 1.5s. Clipboard API with a textarea fallback. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button
+      type="button"
+      className="copy-btn"
+      onClick={copy}
+      aria-label={`Copy ${label}`}
+      title={copied ? "Copied" : `Copy ${label}`}
+    >
+      {copied ? <span className="copy-check">✓</span> : <span>⧉</span>}
+      {copied && <span className="copy-tip">Copied</span>}
+    </button>
+  );
+}
+
+/** Animated score ticker: counts to the new score over ~450ms with an
+ *  ease-out cubic. Instant when the user prefers reduced motion. */
+function ScoreTicker({ score, baseScore }: { score: number; baseScore: number }) {
+  const [shown, setShown] = useState(baseScore);
+  const prevRef = useRef(baseScore);
+  useEffect(() => {
+    const from = prevRef.current;
+    prevRef.current = score;
+    if (from === score) {
+      setShown(score);
+      return;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setShown(score);
+      return;
+    }
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 450);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setShown(Math.round(from + (score - from) * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [score]);
+  return <>{shown}</>;
+}
+
 export default function DisputeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
@@ -77,6 +148,22 @@ export default function DisputeDetailPage() {
 
   // Accordion state
   const [showFullDebate, setShowFullDebate] = useState(false);
+
+  // Micro-interactions
+  const navRef = useRef<HTMLElement | null>(null);
+  useNavPill(navRef);
+  useSpotlight();
+  const [justApproved, setJustApproved] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [gaugePulse, setGaugePulse] = useState(false);
+
+  const pulseScore = detail?.run?.score ?? detail?.final_score;
+  useEffect(() => {
+    if (pulseScore === undefined) return;
+    setGaugePulse(true);
+    const t = window.setTimeout(() => setGaugePulse(false), 650);
+    return () => window.clearTimeout(t);
+  }, [pulseScore]);
 
   const loadDispute = useCallback(async (disputeId: string) => {
     try {
@@ -132,6 +219,8 @@ export default function DisputeDetailPage() {
       if (res.ok) {
         await loadDispute(disputeId);
         setNotice(`Approved action: ${action}`);
+        setJustApproved(true);
+        window.setTimeout(() => setJustApproved(false), 1300);
       } else {
         const body = await res.json().catch(() => ({}));
         setError(`Approval failed: ${body.error ?? res.statusText}`);
@@ -229,7 +318,7 @@ export default function DisputeDetailPage() {
                 <span className="brand-mark">P</span>
                 <span>PHALANX</span>
               </Link>
-              <span className="chip ultraviolet">Dispute Inspector</span>
+              <span className="chip obsidian">Dispute Inspector</span>
             </div>
             <Link className="btn" href="/dashboard">
               ← All disputes
@@ -256,7 +345,7 @@ export default function DisputeDetailPage() {
                 <span className="brand-mark">P</span>
                 <span>PHALANX</span>
               </Link>
-              <span className="chip ultraviolet">Dispute Inspector</span>
+              <span className="chip obsidian">Dispute Inspector</span>
             </div>
             <Link className="btn" href="/dashboard">
               ← All disputes
@@ -302,6 +391,11 @@ export default function DisputeDetailPage() {
         detail.dispute.allowed_actions?.includes(detail.approval.action)),
   );
 
+  const gateUnlocked = Boolean(
+    detail.approval &&
+      detail.approval.action !== "REQUIRES_REAPPROVAL_EVIDENCE_CHANGED",
+  );
+
   return (
     <div>
       {/* Floating Pill Nav */}
@@ -312,10 +406,11 @@ export default function DisputeDetailPage() {
               <span className="brand-mark">P</span>
               <span>PHALANX</span>
             </Link>
-            <span className="chip ultraviolet">PayPal Sandbox</span>
+            <span className="chip obsidian">PayPal Sandbox</span>
           </div>
 
-          <nav className="nav-links" aria-label="Workbench navigation">
+          <nav className="nav-links" aria-label="Workbench navigation" ref={navRef}>
+            <span className="nav-pill" aria-hidden="true" />
             <Link href="/" className="nav-link">
               Overview
             </Link>
@@ -372,7 +467,10 @@ export default function DisputeDetailPage() {
         <div className="detail-header-card">
           <div className="detail-header-top">
             <div className="detail-title-cluster">
-              <h1 className="font-mono">{detail.dispute.id}</h1>
+              <h1 className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {detail.dispute.id}
+                <CopyButton text={detail.dispute.id} label="dispute ID" />
+              </h1>
               <p className="detail-meta-line">
                 <b>{detail.dispute.reason}</b> · ${parseFloat(detail.dispute.amount.value).toFixed(2)} USD · Stage:{" "}
                 {detail.dispute.dispute_life_cycle_stage} · Status: {detail.dispute.status}
@@ -384,14 +482,32 @@ export default function DisputeDetailPage() {
                   <span className="badge na">SANDBOX</span>
                 )}
                 {run ? verdictBadge(verdict) : <span className="badge na">NOT RUN</span>}
-                <span className="chip" style={{ fontWeight: 600 }}>
-                  Deterministic Score: {score}/100
+                <span className="chip tabular-nums" style={{ fontWeight: 600 }}>
+                  Deterministic Score: <ScoreTicker score={score} baseScore={baseScore} />/100
                 </span>
                 {score > baseScore && (
                   <span className="badge strong">
                     Base: {baseScore} → Updated: {score} (+{score - baseScore} from attached bills)
                   </span>
                 )}
+              </div>
+              {/* Score gauge — thresholds 35 / 75, the real bands */}
+              <div className="score-gauge" role="img" aria-label={`Checklist score ${score} out of 100`}>
+                <div
+                  className={`score-gauge-fill ${verdict === "CONTEST_HARD_PROOF" ? "contest" : verdict === "DE_ESCALATE_OFFER" ? "offer" : "concede"}${gaugePulse ? " pulse" : ""}`}
+                  style={{ width: `${score}%` }}
+                />
+                <div className="score-gauge-marker" style={{ left: "35%" }}>
+                  <span>35</span>
+                </div>
+                <div className="score-gauge-marker" style={{ left: "75%" }}>
+                  <span>75</span>
+                </div>
+              </div>
+              <div className="score-gauge-labels">
+                <span>0 · Concede &lt;35</span>
+                <span>Offer 35–74</span>
+                <span>Contest ≥75 · 100</span>
               </div>
             </div>
 
@@ -446,7 +562,7 @@ export default function DisputeDetailPage() {
             {practicalReasons.length > 0 ? (
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
                 {practicalReasons.map((r, i) => (
-                  <li key={i}>{r}</li>
+                  <li key={i} className="stagger-item" style={{ animationDelay: `${i * 50}ms` }}>{r}</li>
                 ))}
               </ul>
             ) : (
@@ -498,10 +614,12 @@ export default function DisputeDetailPage() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {namedGaps.slice(0, 3).map((g) => (
+                {namedGaps.slice(0, 3).map((g, gi) => (
                   <div
                     key={g.code}
+                    className="gap-card stagger-item"
                     style={{
+                      animationDelay: `${gi * 50}ms`,
                       padding: "12px 16px",
                       background: "var(--bg-muted)",
                       borderRadius: "var(--radius-card)",
@@ -526,7 +644,7 @@ export default function DisputeDetailPage() {
                       <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
                         Flagged by {g.citedBy.length}/3 Jurors ({g.rawCount} findings collapsed)
                       </span>
-                      <span className="chip ultraviolet" style={{ fontSize: 11, cursor: "pointer" }} onClick={() => setIsAttaching(true)}>
+                      <span className="chip obsidian gap-attach-btn" style={{ fontSize: 11, cursor: "pointer" }} onClick={() => setIsAttaching(true)}>
                         Fix: Attach {g.recommendedEvidenceType}
                       </span>
                     </div>
@@ -606,9 +724,12 @@ export default function DisputeDetailPage() {
                           {att.quality} (+{att.scoreDelta} pts)
                         </span>
                       </div>
-                      <div className="font-mono" style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                        SHA-256: {att.sha256.slice(0, 12)}… · {(att.sizeBytes / 1024).toFixed(1)} KB
-                        {att.referenceId ? ` · Ref: ${att.referenceId}` : ""}
+                      <div className="font-mono" style={{ fontSize: 11.5, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>
+                          SHA-256: {att.sha256.slice(0, 12)}… · {(att.sizeBytes / 1024).toFixed(1)} KB
+                          {att.referenceId ? ` · Ref: ${att.referenceId}` : ""}
+                        </span>
+                        <CopyButton text={att.sha256} label="SHA-256 hash" />
                       </div>
                     </div>
                     <button
@@ -687,13 +808,32 @@ export default function DisputeDetailPage() {
 
                 <div className="form-group">
                   <label className="form-label">File Document (PDF, PNG, JPG, TXT, JSON, CSV - Max 5 MB)</label>
-                  <input
-                    type="file"
-                    className="form-input"
-                    accept=".pdf,.png,.jpg,.jpeg,.txt,.json,.csv"
-                    required
-                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                  />
+                  <div
+                    className={`dropzone${isDragOver ? " dragging" : ""}`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(true);
+                    }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) setSelectedFile(f);
+                    }}
+                  >
+                    <span className="dropzone-icon">⇪</span>
+                    <p style={{ margin: "6px 0 10px", fontSize: 13, color: "var(--text-secondary)" }}>
+                      Drop a bill or courier receipt here, or choose a file below. The real SHA-256 is shown after upload.
+                    </p>
+                    <input
+                      type="file"
+                      className="form-input"
+                      accept=".pdf,.png,.jpg,.jpeg,.txt,.json,.csv"
+                      required
+                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
@@ -721,10 +861,13 @@ export default function DisputeDetailPage() {
             BLOCK 5: Mandatory Human Approval Gate & Dossier Download
             ======================================================== */}
         {run && (
-          <div className="approval-gate-card">
+          <div className={`approval-gate-card${gateUnlocked ? " unlocked" : ""}${justApproved ? " gate-just-approved" : ""}`}>
             <div className="approval-gate-header">
-              <h3>Human Approval Gate (Strictly Mandatory)</h3>
-              <span className="chip ultraviolet">
+              <h3>
+                <span className={`gate-lock${gateUnlocked ? " unlocked" : ""}`}>{gateUnlocked ? "🔓" : "🔒"}</span>{" "}
+                Human Approval Gate (Strictly Mandatory)
+              </h3>
+              <span className="chip obsidian">
                 Recommended: {actionForVerdict}
               </span>
             </div>
@@ -798,15 +941,17 @@ export default function DisputeDetailPage() {
             style={{ width: "100%", justifyContent: "space-between", border: "none", padding: "8px 0" }}
           >
             <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text-ink)" }}>
-              {showFullDebate ? "▾ Hide" : "▸ View"} full debate transcript (3 jurors · {namedGaps.length} named gaps · Red-Team audit)
+              <span className={`debate-toggle-chevron${showFullDebate ? " open" : ""}`}>▸</span>{" "}
+              {showFullDebate ? "Hide" : "View"} full debate transcript (3 jurors · {namedGaps.length} named gaps · Red-Team audit)
             </span>
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
               {showFullDebate ? "Collapse" : "Expand"}
             </span>
           </button>
 
-          {showFullDebate && (
-            <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className={`debate-panel${showFullDebate ? " open" : ""}`}>
+            <div className="debate-panel-inner">
+              <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 16 }}>
               {/* Judge Framing */}
               {run && (run.issue_framing || run.verdict_reasoning) && (
                 <div className="judge-card" style={{ margin: 0 }}>
@@ -876,8 +1021,9 @@ export default function DisputeDetailPage() {
                   ))}
                 </div>
               )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
       </main>
     </div>

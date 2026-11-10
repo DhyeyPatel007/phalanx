@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geist = Geist({
+// New theme (Nov 11, 2026): Inter editorial sans + JetBrains Mono for
+// dispute IDs, amounts, hashes, timestamps and scores.
+const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
@@ -16,7 +18,7 @@ const geist = Geist({
   ],
 });
 
-const geistMono = Geist_Mono({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
@@ -30,18 +32,25 @@ const geistMono = Geist_Mono({
   ],
 });
 
-const instrumentSerif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  variable: "--font-serif",
-  display: "swap",
-  fallback: ["Georgia", "Cambria", "Times New Roman", "serif"],
-});
-
 export const metadata: Metadata = {
+  metadataBase: new URL("https://phalanx.krynex.in"),
   title: "PHALANX — Adversarial Dispute Defense for PayPal Merchants",
   description:
     "Open-source multi-agent dispute workbench for small PayPal merchants. Deterministic checklist scoring, 3-juror deliberation, and mandatory human approval.",
+  openGraph: {
+    title: "PHALANX — Adversarial Dispute Defense for PayPal Merchants",
+    description:
+      "Open-source multi-agent dispute workbench for small PayPal merchants. Deterministic checklist scoring, 3-juror deliberation, and mandatory human approval.",
+    url: "https://phalanx.krynex.in",
+    siteName: "PHALANX",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "PHALANX — Adversarial Dispute Defense for PayPal Merchants",
+    description:
+      "Open-source multi-agent dispute workbench for small PayPal merchants. Deterministic checklist scoring, 3-juror deliberation, and mandatory human approval.",
+  },
 };
 
 export default function RootLayout({
@@ -52,7 +61,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${geistMono.variable} ${instrumentSerif.variable}`}
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
       <body className="light-theme">{children}</body>
     </html>
