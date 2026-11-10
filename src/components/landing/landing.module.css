@@ -168,10 +168,11 @@ a.queueRow:hover {
 
 .queueReason {
   font-size: 13px;
+  line-height: 1.35;
   color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* The reason enum is one long token (MERCHANDISE_OR_SERVICE_NOT_RECEIVED)
+     — it must wrap mid-token instead of truncating with an ellipsis. */
+  overflow-wrap: anywhere;
 }
 
 .queueAmount {

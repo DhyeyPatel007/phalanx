@@ -3168,16 +3168,22 @@ button.primary:hover:not(:disabled)::after,
   align-items: flex-start;
   justify-content: center;
   height: 100%;
+  /* AG Grid sets the cell line-height to ~rowHeight (53px for a 60px
+     row) so single-line text centres; this two-line stack must NOT
+     inherit it or each line becomes ~53px tall and overflows the row. */
+  line-height: normal;
 }
 
 .ag-reason-badge {
   font-size: 11px;
+  line-height: 1.4;
   padding: 2px 8px;
 }
 
 .ag-reason-amount {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 /* --- Audit log (§3.1 nav target) --- */

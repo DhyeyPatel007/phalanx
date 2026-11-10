@@ -27,7 +27,11 @@ export function SpringCounter({
   return (
     <span ref={ref} className={`px-counter ${className}`}>
       {prefix}
-      {current.toFixed(decimals)}
+      {/* Counters only count non-negative quantities — clamp transient
+          spring frames at 0 so an undershoot (e.g. scrolling the stat
+          band out of view, target -> 0) never flashes a negative value.
+          The settled value is untouched: every target is >= 0. */}
+      {Math.max(0, current).toFixed(decimals)}
       {suffix}
     </span>
   );

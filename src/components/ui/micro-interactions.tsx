@@ -116,7 +116,11 @@ export function AnimatedCounter({
   return (
     <span className={`font-mono tabular-nums ${className}`}>
       {prefix}
-      {display.toFixed(decimals)}
+      {/* Counters in this app only ever count non-negative quantities
+          (money, scores, counts) — clamp transient animation frames at 0
+          so a spring/easing overshoot never flashes a negative value. The
+          settled value is untouched: every target is >= 0. */}
+      {Math.max(0, display).toFixed(decimals)}
       {suffix}
     </span>
   );
