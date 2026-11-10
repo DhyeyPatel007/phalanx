@@ -6,8 +6,11 @@
 // the 75 contest threshold), VerdictBadgeCell (pill + animated status
 // dot; offer shows the real offer amount), ActionHoverCell ("Inspect
 // Dossier →" slides in on row hover, translates 4px on hover).
-// Grid theme params live here too; row/header heights ride on --ag-*
-// CSS vars in globals.css (the reliable route in AG Grid v36).
+// Grid theme params live here too. Row height is set as a grid option
+// (rowHeight={60} in DisputeQueue): AG Grid lays rows out in JS, so a
+// --ag-row-height CSS var does not control it — the old var in
+// globals.css left rows at the 42px default and clipped the two-line
+// reason cell (badge sliced, amount hidden).
 "use client";
 
 import Link from "next/link";

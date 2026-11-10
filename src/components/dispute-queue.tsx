@@ -254,6 +254,12 @@ export default function DisputeQueue({
             rowData={visibleRows}
             columnDefs={columns}
             theme={phalanxGridTheme}
+            // The reason cell is two lines (badge + amount, ~45px tall).
+            // Row height MUST be set here as a grid option: AG Grid lays
+            // rows out in JS, so the --ag-row-height CSS var in
+            // globals.css never took effect and the default 42px row
+            // clipped the badge in half and hid the amount entirely.
+            rowHeight={60}
             defaultColDef={{ resizable: true }}
             getRowClass={(params) =>
               params.data?.verdict === "CONTEST_HARD_PROOF"

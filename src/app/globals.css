@@ -159,8 +159,9 @@ code {
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px 8px 20px;
-  background: rgba(255, 255, 255, 0.90);
-  backdrop-filter: blur(14px);
+  /* Solid opaque background: the old 90% white + blur let page content
+     ghost through and overlap the nav while scrolling. */
+  background: #ffffff;
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-pill);
 }
@@ -1688,9 +1689,9 @@ button.primary:hover:not(:disabled)::after,
   justify-content: space-between;
   gap: 16px;
   padding: 10px 20px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  background: rgba(255, 255, 255, 0.82);
+  /* Solid opaque background: the old 82% white + blur let page content
+     ghost through and overlap the nav while scrolling. */
+  background: #ffffff;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -2627,9 +2628,10 @@ button.primary:hover:not(:disabled)::after,
   justify-content: space-between;
   gap: 16px;
   padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* Solid opaque background: the old 85% white + blur let page content
+     ghost through and overlap the nav while scrolling (hero subtext and
+     queue rows bleeding through behind the tab labels). */
+  background: #ffffff;
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -2973,15 +2975,14 @@ button.primary:hover:not(:disabled)::after,
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--text-secondary);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* Full text wraps: the old 2-line clamp cut descriptions mid-word
+     ("Extracts PayPal artifacts & attached…") at rest. Cards stretch
+     to the tallest sibling, so wrapping costs no layout. */
+  overflow-wrap: break-word;
 }
 
 .swarm-viz-node.hovered .swarm-viz-role {
   color: #e2e8f0;
-  -webkit-line-clamp: unset;
 }
 
 .swarm-viz-duration {

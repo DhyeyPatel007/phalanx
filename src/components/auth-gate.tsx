@@ -16,8 +16,12 @@ import styles from "./auth.module.css";
 
 export function LoginForm({ onSuccess }: { onSuccess?: () => void }) {
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Prefilled with the real demo credentials as controlled state, so
+  // the first "Log in" click actually submits them. (Previously the
+  // fields started empty and the browser's autofill display only
+  // *looked* filled, so the first submit failed native validation.)
+  const [email, setEmail] = useState(DEMO_EMAIL);
+  const [password, setPassword] = useState(DEMO_PASSWORD);
   const [error, setError] = useState<string | null>(null);
 
   const submit = (e: React.FormEvent) => {

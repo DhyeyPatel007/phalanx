@@ -200,6 +200,50 @@ export default function DisputeDetailPage() {
     return () => window.clearTimeout(t);
   }, [pulseScore]);
 
+  // Hooks must ALL run before any early return. The two useMemos below
+  // previously sat after the loading/error returns, so the loaded render
+  // ran two more hooks than the loading render (React error #310 — the
+  // detail page crashed in the browser). `run` is null while loading;
+  // both memos are null-safe over it.
+  const run = detail?.run ?? null;
+
+  const filteredMessages = useMemo(() => {
+    const messages = run?.messages ?? [];
+    if (debateFilter === "all") return messages;
+    const match: Record<Exclude<DebateFilter, "all">, (actor: string) => boolean> = {
+      hound: (a) => a.startsWith("Hound"),
+      prosecutor: (a) => a.startsWith("Prosecutor"),
+      "red-team": (a) => a.includes("Red-Team"),
+      evidence: (a) => a.includes("Evidence"),
+      policy: (a) => a.includes("Policy"),
+      buyer: (a) => a.includes("Buyer-Sympathy"),
+      judge: (a) => a.startsWith("Judge"),
+    };
+    return messages.filter((m) => match[debateFilter](m.actor));
+  }, [run, debateFilter]);
+
+  // Real phase durations from the completed run, keyed by pipeline
+  // stage id ("01".."06") — never invented.
+  const pipelineDurations = useMemo(() => {
+    const out: Partial<Record<string, number | null>> = {};
+    const phases = run?.phases ?? [];
+    const take = (key: string, ms: number | null) => {
+      if (ms == null) return;
+      out[key] = Math.max(out[key] ?? 0, ms);
+    };
+    for (const ph of phases) {
+      const a = ph.actor ?? "";
+      if (a.startsWith("Hound")) take("01", ph.duration_ms);
+      else if (a.startsWith("Prosecutor")) take("02", ph.duration_ms);
+      else if (a.includes("Red-Team") || a.includes("Jury")) {
+        take("03", ph.duration_ms);
+        take("04", ph.duration_ms);
+      } else if (a.startsWith("Judge")) take("05", ph.duration_ms);
+      else if (a.startsWith("Arbiter")) take("06", ph.duration_ms);
+    }
+    return out;
+  }, [run]);
+
   const runSwarm = async (disputeId: string) => {
     setLoading(true);
     setNotice(null);
@@ -327,7 +371,6 @@ export default function DisputeDetailPage() {
     );
   }
 
-  const run = detail.run;
   const attached = detail.attached_evidence ?? [];
   const score = run ? run.score : (detail.final_score ?? 0);
   const baseScore = run?.base_score ?? detail.base_score ?? score;
@@ -376,43 +419,6 @@ export default function DisputeDetailPage() {
     run && run.iterations.length > 0
       ? run.iterations[run.iterations.length - 1].rebuttal_text
       : null;
-
-  const filteredMessages = useMemo(() => {
-    const messages = run?.messages ?? [];
-    if (debateFilter === "all") return messages;
-    const match: Record<Exclude<DebateFilter, "all">, (actor: string) => boolean> = {
-      hound: (a) => a.startsWith("Hound"),
-      prosecutor: (a) => a.startsWith("Prosecutor"),
-      "red-team": (a) => a.includes("Red-Team"),
-      evidence: (a) => a.includes("Evidence"),
-      policy: (a) => a.includes("Policy"),
-      buyer: (a) => a.includes("Buyer-Sympathy"),
-      judge: (a) => a.startsWith("Judge"),
-    };
-    return messages.filter((m) => match[debateFilter](m.actor));
-  }, [run, debateFilter]);
-
-  // Real phase durations from the completed run, keyed by pipeline
-  // stage id ("01".."06") — never invented.
-  const pipelineDurations = useMemo(() => {
-    const out: Partial<Record<string, number | null>> = {};
-    const phases = run?.phases ?? [];
-    const take = (key: string, ms: number | null) => {
-      if (ms == null) return;
-      out[key] = Math.max(out[key] ?? 0, ms);
-    };
-    for (const ph of phases) {
-      const a = ph.actor ?? "";
-      if (a.startsWith("Hound")) take("01", ph.duration_ms);
-      else if (a.startsWith("Prosecutor")) take("02", ph.duration_ms);
-      else if (a.includes("Red-Team") || a.includes("Jury")) {
-        take("03", ph.duration_ms);
-        take("04", ph.duration_ms);
-      } else if (a.startsWith("Judge")) take("05", ph.duration_ms);
-      else if (a.startsWith("Arbiter")) take("06", ph.duration_ms);
-    }
-    return out;
-  }, [run]);
 
   const fixGap = (gap: NamedGap) => {
     setEvidenceType(gap.recommendedEvidenceType);

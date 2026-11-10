@@ -10,16 +10,24 @@ import styles from "./landing.module.css";
 
 export default function StatBand({
   disputes,
-  telemetry,
+  telemetry: _telemetry,
 }: {
   disputes: Dispute[];
   telemetry: Telemetry | null;
 }) {
-  const fallbackVolume = disputes.reduce(
+  // Total disputed volume is the sum of the ledger rows this page
+  // actually fetched and displays — the same sum the dashboard's Bento
+  // KPIs show for the same rows. The server-side telemetry total used
+  // to be preferred, but on serverless each fetch can land on a
+  // different instance with a different in-memory store, so the
+  // telemetry figure could disagree with the visible rows (the preview
+  // showed $1514 here while the dashboard showed $1570 for the same 6
+  // cases). `telemetry` stays in the props so the call site is
+  // unchanged; the volume no longer reads it.
+  const volume = disputes.reduce(
     (sum, d) => sum + (Number.parseFloat(d.amount.value || "0") || 0),
     0,
   );
-  const volume = telemetry ? telemetry.total_volume_usd : fallbackVolume;
   const liveCount = disputes.filter((d) => d.source === "sandbox").length;
   const seededCount = disputes.filter((d) => d.source === "seeded").length;
 
