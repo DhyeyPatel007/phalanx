@@ -7,17 +7,20 @@ import {
   getExecution,
   latestRun,
 } from "@/lib/store";
+import { ensureLiveDispute } from "@/lib/ingest";
 import { buildPracticalReasons, deduplicateGaps } from "@/lib/practical-reasoning";
 import { computeAttachedEvidenceDelta } from "@/lib/evidence-scorer";
 import { scoreDispute } from "@/lib/scorer";
 
-/** GET /api/disputes/{id} — detail + artifacts + attached evidence + latest run + approval state. */
+/** GET /api/disputes/{id} — detail + artifacts + attached evidence + latest run + approval state.
+ *  Live-sync fallback: a live dispute not yet in the store is pulled from
+ *  PayPal on demand (fail-soft) before returning 404. */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const dispute = getDispute(id);
+  const dispute = getDispute(id) ?? (await ensureLiveDispute(id));
   if (!dispute) {
     return NextResponse.json({ error: "dispute not found" }, { status: 404 });
   }

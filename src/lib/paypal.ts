@@ -57,10 +57,18 @@ async function fetchToken(): Promise<string> {
   return cachedToken.token;
 }
 
+/**
+ * Bounded timeout for pull-sync reads (live-sync fallback). The webhook
+ * path never hangs a page, and the sync path must not either: pass
+ * `timeoutMs` (AbortSignal.timeout) from list/detail reads used by the
+ * ledger. Callers that do not pass it keep the previous behaviour
+ * (no timeout) — the execute path is untouched.
+ */
 async function paypalFetch(
   path: string,
   init: RequestInit = {},
   retried = false,
+  timeoutMs?: number,
 ): Promise<Response> {
   if (!paypalConfigured()) {
     throw new Error(
@@ -85,18 +93,22 @@ async function paypalFetch(
     ...init,
     cache: "no-store",
     headers,
+    ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
   });
   if (res.status === 401 && !retried) {
     cachedToken = null;
-    return paypalFetch(path, init, true);
+    return paypalFetch(path, init, true, timeoutMs);
   }
   return res;
 }
 
 /** GET /v1/customer/disputes — list disputes for the merchant account. */
-export async function listPayPalDisputes(params?: Record<string, string>) {
+export async function listPayPalDisputes(
+  params?: Record<string, string>,
+  timeoutMs?: number,
+) {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-  const res = await paypalFetch(`/v1/customer/disputes${qs}`);
+  const res = await paypalFetch(`/v1/customer/disputes${qs}`, {}, false, timeoutMs);
   if (!res.ok) {
     throw new Error(
       `PayPal list disputes failed: HTTP ${res.status} (debug id: ${res.headers.get("paypal-debug-id") ?? "n/a"})`,
@@ -108,8 +120,13 @@ export async function listPayPalDisputes(params?: Record<string, string>) {
 /** GET /v1/customer/disputes/{id} — full detail incl. HATEOAS links +
  *  allowed_response_options. The live response is the only authority on
  *  which actions are allowed (Phase 0 row 4). */
-export async function getPayPalDispute(id: string) {
-  const res = await paypalFetch(`/v1/customer/disputes/${encodeURIComponent(id)}`);
+export async function getPayPalDispute(id: string, timeoutMs?: number) {
+  const res = await paypalFetch(
+    `/v1/customer/disputes/${encodeURIComponent(id)}`,
+    {},
+    false,
+    timeoutMs,
+  );
   if (!res.ok) {
     throw new Error(
       `PayPal show dispute failed: HTTP ${res.status} (debug id: ${res.headers.get("paypal-debug-id") ?? "n/a"})`,
