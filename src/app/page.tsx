@@ -1,34 +1,43 @@
-// Landing page — new UI (Gemini directive §3): sticky glass command
-// navbar, minimalist hero + interactive 6-agent swarm visualizer, the
-// new 4-card Bento KPI strip, the main dispute command queue, and the
-// webhook & audit log. All values come from the live ledger
-// (useLedger) — nothing hardcoded, nothing invented.
+// Premium landing — from-scratch rebuild (Nov 11, 2026).
+// Apple-grade scroll-driven page: the product UI is the hero visual,
+// one different scroll animation per section, every number from the
+// real ledger (useLedger) or a static structural fact (6 stages).
+// Data layer, API routes, thresholds (35/75) and seeded scores
+// (A 85 / B 60 / C 0) are untouched.
 "use client";
 
 import Link from "next/link";
 import CommandNavbar from "@/components/command-navbar";
-import BentoKpis from "@/components/bento-kpis";
-import DisputeQueue from "@/components/dispute-queue";
-import AuditLog from "@/components/audit-log";
-import { SwarmPipelineVisualizer } from "@/components/ui/micro-interactions";
 import { useLedger } from "@/lib/use-ledger";
+import {
+  Magnetic,
+  Marquee,
+  Reveal,
+  ScrollProgress,
+} from "@/components/premium";
+import { SerifAccent } from "@/components/ui/micro-interactions";
+import HeroMockup from "@/components/landing/HeroMockup";
+import ScrollySwarm from "@/components/landing/ScrollySwarm";
+import FeatureStrip from "@/components/landing/FeatureStrip";
+import StatBand from "@/components/landing/StatBand";
+import ProofCards from "@/components/landing/ProofCards";
+import FinalCta from "@/components/landing/FinalCta";
+import styles from "@/components/landing/landing.module.css";
+
+const MARQUEE_ITEMS = [
+  "Deterministic scoring",
+  "Human approval gate",
+  "Sandbox-only execution",
+  "Open source",
+  "Free for merchants",
+];
 
 export default function LandingPage() {
-  const {
-    disputes,
-    runs,
-    telemetry,
-    loading,
-    error,
-    notice,
-    setNotice,
-    refresh,
-  } = useLedger();
+  const { disputes, runs, telemetry, loading, error, refresh, setNotice } =
+    useLedger();
 
   const hasSandbox = disputes.some((d) => d.source === "sandbox");
-  const simulatedCount = disputes.filter(
-    (d) => d.source === "seeded",
-  ).length;
+  const simulatedCount = disputes.filter((d) => d.source === "seeded").length;
   const evidenceHref =
     disputes.length > 0
       ? `/disputes/${disputes[0].id}#evidence-vault`
@@ -41,6 +50,7 @@ export default function LandingPage() {
 
   return (
     <div className="landing-page phalanx-canvas">
+      <ScrollProgress />
       <CommandNavbar
         envMode={hasSandbox ? "sandbox" : "seeded"}
         simulatedCount={simulatedCount}
@@ -51,138 +61,125 @@ export default function LandingPage() {
       />
 
       <main>
-        {/* Hero — directive §3.2 */}
+        {/* 1 — Hero: parallax + scrubbed product mockup */}
         <section className="hero-wrap hero-new" id="product">
-          <div className="hero-eyebrow">
-            DETERMINISTIC 0–100 CHECKLIST AUTHORITY · ADVERSARIAL 6-AGENT
-            SWARM
-          </div>
-
-          <h1 className="hero-h1 display-sans">
-            <span className="headline-ink">
-              Autonomous PayPal Dispute Defense.
-            </span>{" "}
-            <span className="headline-fade">Zero Hallucinated Verdicts.</span>
-          </h1>
-
-          <p className="hero-subcopy">
-            The LLM drafts the prose. A deterministic checklist scorer decides
-            the verdict. Attach bills, collapse 70+ juror notes into 3
-            actionable reasons, and execute only after human approval.
-          </p>
-
-          <div className="hero-cta-row">
-            <Link className="btn primary" href="/dashboard">
-              Open the Workbench →
-            </Link>
-            <Link className="btn" href="#queue">
-              View Command Queue ↓
-            </Link>
-          </div>
-
-          <div className="proof-strip">
-            <span className="proof-item">
-              <span className="proof-check">✓</span> PayPal Sandbox API
-              Verified
-            </span>
-            <span className="proof-item">
-              <span className="proof-check">✓</span> MIT Open Source
-            </span>
-            <span className="proof-item">
-              <span className="proof-check">✓</span> Human Approves Every
-              Action
-            </span>
-            <span className="proof-item">
-              <span className="proof-check">✓</span> Zero Predicted Win Odds
-              (Deterministic Only)
-            </span>
-          </div>
-        </section>
-
-        {/* Swarm Architecture — directive §3.2 */}
-        <section className="section-white" id="swarm">
-          <div className="section-container">
-            <div className="skeleton-header">
-              <h2 className="section-h2 display-sans">
-                <span className="headline-ink">Six agents in debate.</span>{" "}
-                <span className="headline-fade">One deterministic verdict.</span>
-              </h2>
-              <p className="skeleton-desc">
-                Hound retrieves merchant tracking and invoices. Prosecutor
-                drafts the rebuttal. Red-Team attacks the draft for missing
-                proof. The 3-juror quorum names the gaps. Judge frames the
-                issue in plain English. Arbiter routes fight, offer, or
-                concede from the 0–100 checklist score — the score decides,
-                never the model.
-              </p>
+          <Reveal>
+            <div className="hero-eyebrow">
+              DETERMINISTIC 0–100 CHECKLIST AUTHORITY · ADVERSARIAL 6-AGENT
+              SWARM
             </div>
+          </Reveal>
 
-            <SwarmPipelineVisualizer />
-
-            <div className="debate-fragment">
-              <div className="debate-fragment-label">
-                Real Debate Transcript Fragment · Scenario A (Pass 1 → Pass 2)
-              </div>
-              <div className="msg gap debate-fragment-msg">
-                <div className="actor">
-                  [QUORUM 2/3+] RED-TEAM JURY · ITERATION 1
-                </div>
-                <pre>
-                  Named Gap: Carrier tracking delivered verified (+30), but
-                  post-delivery merchant communication log is missing (+25).
-                  Score: 60/100 (Threshold 75 not met).
-                </pre>
-              </div>
-              <div className="msg critique debate-fragment-msg">
-                <div className="actor">HOUND DEEP RETRIEVAL · ITERATION 2</div>
-                <pre>
-                  Retrieved artifact: Zendesk ticket #4092 showing buyer
-                  acknowledged delivery on Oct 14. Checklist re-scored:
-                  85/100. Verdict flipped to CONTEST_HARD_PROOF.
-                </pre>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Bento KPIs + Command Queue — directive §3.3–3.4 */}
-        <section className="section-alabaster queue-wrap-section">
-          <div className="section-container">
-            {notice && (
-              <div className="callout notice">
-                <span>{notice}</span>
-                <button
-                  type="button"
-                  onClick={() => setNotice(null)}
-                  className="callout-dismiss"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            {error && <div className="callout error">Error: {error}</div>}
-
-            <div className="callout simulated">
-              <span>
-                <b>SIMULATED DATA</b> — seeded disputes are demo scenarios,
-                not real buyers or funds. Checklist scores are an internal
-                heuristic, NOT a win probability. Sandbox only; human approval
-                is mandatory.
+          <Reveal delay={80}>
+            <h1 className="hero-h1 display-sans">
+              <span className="headline-ink">
+                Autonomous PayPal Dispute Defense.
+              </span>{" "}
+              <span className="headline-fade">
+                Zero <SerifAccent>Hallucinated</SerifAccent> Verdicts.
               </span>
-              <span className="chip sim">3 Seeded Scenarios</span>
+            </h1>
+          </Reveal>
+
+          <Reveal delay={160}>
+            <p className="hero-subcopy">
+              The LLM drafts the prose. A deterministic checklist scorer
+              decides the verdict. Attach bills, collapse 70+ juror notes
+              into 3 actionable reasons, and execute only after human
+              approval.
+            </p>
+          </Reveal>
+
+          <Reveal delay={240}>
+            <div className="hero-cta-row">
+              <Magnetic strength={0.25}>
+                <Link className="btn primary" href="/dashboard">
+                  Open the Workbench →
+                </Link>
+              </Magnetic>
+              <Magnetic strength={0.25}>
+                <Link className="btn" href="#queue">
+                  View Command Queue ↓
+                </Link>
+              </Magnetic>
             </div>
+          </Reveal>
 
-            <BentoKpis
-              disputes={disputes}
-              runs={runs}
-              executionsSucceeded={telemetry?.executions_succeeded ?? 0}
-            />
+          <Reveal delay={320}>
+            <div className="proof-strip">
+              <span className="proof-item">
+                <span className="proof-check">✓</span> PayPal Sandbox API
+                Verified
+              </span>
+              <span className="proof-item">
+                <span className="proof-check">✓</span> MIT Open Source
+              </span>
+              <span className="proof-item">
+                <span className="proof-check">✓</span> Human Approves Every
+                Action
+              </span>
+              <span className="proof-item">
+                <span className="proof-check">✓</span> Zero Predicted Win Odds
+                (Deterministic Only)
+              </span>
+            </div>
+          </Reveal>
 
-            <DisputeQueue disputes={disputes} runs={runs} />
+          <HeroMockup
+            disputes={disputes}
+            runs={runs}
+            loading={loading}
+            error={error}
+          />
+        </section>
 
-            <AuditLog />
+        {/* Marquee — honest items only */}
+        <div className={styles.marqueeBand} aria-label="PHALANX principles">
+          <Marquee duration={32}>
+            {MARQUEE_ITEMS.map((item) => (
+              <span key={item} className={styles.marqueeItem}>
+                {item}
+              </span>
+            ))}
+          </Marquee>
+        </div>
+
+        {/* 2 — Pinned scrollytelling: how the swarm works */}
+        <ScrollySwarm />
+
+        {/* 3 — Horizontal-scroll feature strip */}
+        <FeatureStrip />
+
+        {/* 4 — Stat band: spring counters from the real ledger */}
+        <StatBand disputes={disputes} telemetry={telemetry} />
+
+        {/* 5 — Sticky stacking proof cards: seeded outcomes */}
+        <ProofCards disputes={disputes} runs={runs} loading={loading} />
+
+        {/* Audit anchor (navbar links here; the log itself lives in the
+            workbench — never faked on the landing page) */}
+        <section id="audit" className={styles.sectionPad}>
+          <div className={styles.container}>
+            <Reveal>
+              <div className={styles.auditCard}>
+                <div>
+                  <h3>Webhook &amp; audit log</h3>
+                  <p>
+                    Every PayPal dispute event, every human approval and every
+                    execution is written to the audit log. The log lives in
+                    the workbench, next to the cases it describes.
+                  </p>
+                </div>
+                <Link className="btn" href="/dashboard">
+                  Open the audit log →
+                </Link>
+              </div>
+            </Reveal>
           </div>
         </section>
+
+        {/* 6 — Final CTA: magnetic, auth-aware */}
+        <FinalCta />
       </main>
 
       <footer className="footer-wrap">
@@ -195,6 +192,11 @@ export default function LandingPage() {
             <p className="footer-about">
               Adversarial dispute-defense workbench for small PayPal
               merchants. Built for the PayPal AI Hackathon.
+            </p>
+            <p className="footer-about">
+              Free for merchants — self-hosted, bring your own key. PayPal
+              charges its own $15 dispute fee; PHALANX adds nothing.
+              Single-tenant demo workspace.
             </p>
           </div>
 
