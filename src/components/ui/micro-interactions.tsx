@@ -374,3 +374,19 @@ export function SwarmPipelineVisualizer({
     </div>
   );
 }
+
+/**
+ * 6. SerifAccent (premium foundations, Nov 11, 2026): wraps a single
+ * display word in Instrument Serif italic — the accent-word pattern
+ * ("Zero *Hallucinated* Verdicts"). Never used for body text.
+ * Additive only; no existing export changed.
+ */
+export function SerifAccent({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <em className={`display-accent ${className}`}>{children}</em>;
+}
