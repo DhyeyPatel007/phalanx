@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AttachedEvidence,
   Dispute,
@@ -12,7 +12,9 @@ import type {
   SwarmRun,
   Verdict,
 } from "@/lib/types";
-import { useNavPill, useSpotlight } from "@/lib/ui-effects";
+import { useSpotlight } from "@/lib/ui-effects";
+import CommandBar from "@/components/command-bar";
+import SwarmPipeline from "@/components/swarm-pipeline";
 
 interface DetailData {
   dispute: Dispute;
@@ -126,6 +128,100 @@ function ScoreTicker({ score, baseScore }: { score: number; baseScore: number })
   return <>{shown}</>;
 }
 
+/** Animated radial score meter: an SVG ring whose stroke interpolates
+ *  to the score (0–100) with a CSS transition; the centre counts with
+ *  the same ScoreTicker. Colour follows the real verdict bands
+ *  (>=75 emerald, 35–74 amber, <35 rose). */
+function RadialScoreMeter({ score }: { score: number }) {
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  const band =
+    score >= 75 ? "contest" : score >= 35 ? "offer" : "concede";
+  return (
+    <div
+      className="radial-meter"
+      role="img"
+      aria-label={`Checklist score ${score} out of 100`}
+    >
+      <svg viewBox="0 0 120 120" width="120" height="120">
+        <circle cx="60" cy="60" r={r} className="radial-track" />
+        <circle
+          cx="60"
+          cy="60"
+          r={r}
+          className={`radial-fill ${band}`}
+          strokeDasharray={c}
+          strokeDashoffset={c - (score / 100) * c}
+        />
+      </svg>
+      <div className="radial-centre">
+        <span className="radial-score tabular-nums font-mono">{score}</span>
+        <span className="radial-of">/ 100</span>
+      </div>
+    </div>
+  );
+}
+
+/** Cryptographic hash scrambler: on attach, rapidly cycles random hex
+ *  characters for 300ms, then locks onto the REAL computed SHA-256
+ *  (first 16 chars) and pops the STRONG/WEAK (+XX pts) badge with
+ *  spring physics. The hash is never invented — it is the digest the
+ *  server computed for the uploaded file. */
+function HashScrambler({
+  hash,
+  quality,
+  delta,
+  fileName,
+}: {
+  hash: string;
+  quality: "STRONG" | "WEAK" | "INVALID";
+  delta: number;
+  fileName: string;
+}) {
+  const [shown, setShown] = useState("????????????????");
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    setLocked(false);
+    const target = hash.slice(0, 16);
+    const hex = "0123456789abcdef";
+    const iv = window.setInterval(() => {
+      let s = "";
+      for (let i = 0; i < 16; i++)
+        s += hex[Math.floor(Math.random() * 16)];
+      setShown(s);
+    }, 30);
+    const to = window.setTimeout(() => {
+      window.clearInterval(iv);
+      setShown(target);
+      setLocked(true);
+    }, 300);
+    return () => {
+      window.clearInterval(iv);
+      window.clearTimeout(to);
+    };
+  }, [hash]);
+  return (
+    <div className={`hash-scramble${locked ? " locked" : ""}`}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
+          {fileName}
+        </span>
+        {locked && (
+          <span className={`badge hash-badge-pop ${quality === "STRONG" ? "strong" : "weak"}`}>
+            {quality} (+{delta} pts)
+          </span>
+        )}
+      </div>
+      <div className="font-mono tabular-nums" style={{ fontSize: 13, marginTop: 4 }}>
+        SHA-256: {shown}
+        {!locked && <span className="hash-scrambling"> · scrambling…</span>}
+      </div>
+    </div>
+  );
+}
+
+type DebateFilter = "all" | "evidence" | "policy" | "buyer" | "red-team";
+
 export default function DisputeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
@@ -148,14 +244,24 @@ export default function DisputeDetailPage() {
 
   // Accordion state
   const [showFullDebate, setShowFullDebate] = useState(false);
+  const [debateFilter, setDebateFilter] = useState<DebateFilter>("all");
 
   // Micro-interactions
-  const navRef = useRef<HTMLElement | null>(null);
-  useNavPill(navRef);
   useSpotlight();
   const [justApproved, setJustApproved] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [gaugePulse, setGaugePulse] = useState(false);
+  // Cross-pane highlight: hovering a Named Gap pulses the evidence
+  // dropzone in the right pane for that gap's recommended evidence type.
+  const [highlightedEvidenceType, setHighlightedEvidenceType] =
+    useState<EvidenceType | null>(null);
+  // Last attached file, for the hash scrambler (real server SHA-256).
+  const [lastAttach, setLastAttach] = useState<{
+    sha256: string;
+    quality: "STRONG" | "WEAK" | "INVALID";
+    scoreDelta: number;
+    fileName: string;
+  } | null>(null);
 
   const pulseScore = detail?.run?.score ?? detail?.final_score;
   useEffect(() => {
@@ -276,6 +382,14 @@ export default function DisputeDetailPage() {
       }
 
       setNotice(`Attached ${selectedFile.name} successfully (+${data.delta} pts).`);
+      if (data.item?.sha256) {
+        setLastAttach({
+          sha256: data.item.sha256,
+          quality: data.item.quality,
+          scoreDelta: data.item.scoreDelta,
+          fileName: data.item.fileName,
+        });
+      }
       setIsAttaching(false);
       setSelectedFile(null);
       setReferenceId("");
@@ -311,20 +425,20 @@ export default function DisputeDetailPage() {
   if (initialLoading) {
     return (
       <div>
-        <div className="floating-nav-wrap">
-          <header className="floating-nav">
-            <div className="brand-cluster">
-              <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="brand-mark">P</span>
-                <span>PHALANX</span>
-              </Link>
-              <span className="chip obsidian">Dispute Inspector</span>
-            </div>
-            <Link className="btn" href="/dashboard">
-              ← All disputes
-            </Link>
-          </header>
-        </div>
+      <CommandBar
+        envMode="seeded"
+        brandChip="Dispute Inspector"
+        links={[
+          { href: "/", label: "Overview" },
+          { href: "/dashboard", label: "Disputes" },
+          { href: "/guide", label: "Guide" },
+        ]}
+        actions={
+          <Link className="btn" href="/dashboard" style={{ fontSize: 13, padding: "6px 14px" }}>
+            ← All disputes
+          </Link>
+        }
+      />
         <main className="detail-wrap">
           <div className="quiet-status-line">
             <span className="breathing-dot" />
@@ -338,20 +452,20 @@ export default function DisputeDetailPage() {
   if (error || !detail) {
     return (
       <div>
-        <div className="floating-nav-wrap">
-          <header className="floating-nav">
-            <div className="brand-cluster">
-              <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="brand-mark">P</span>
-                <span>PHALANX</span>
-              </Link>
-              <span className="chip obsidian">Dispute Inspector</span>
-            </div>
-            <Link className="btn" href="/dashboard">
-              ← All disputes
-            </Link>
-          </header>
-        </div>
+      <CommandBar
+        envMode="seeded"
+        brandChip="Dispute Inspector"
+        links={[
+          { href: "/", label: "Overview" },
+          { href: "/dashboard", label: "Disputes" },
+          { href: "/guide", label: "Guide" },
+        ]}
+        actions={
+          <Link className="btn" href="/dashboard" style={{ fontSize: 13, padding: "6px 14px" }}>
+            ← All disputes
+          </Link>
+        }
+      />
         <main className="detail-wrap">
           <div className="callout error">
             {error || `Dispute ${id} not found.`}
@@ -396,33 +510,49 @@ export default function DisputeDetailPage() {
       detail.approval.action !== "REQUIRES_REAPPROVAL_EVIDENCE_CHANGED",
   );
 
+  const filteredMessages = useMemo(() => {
+    const messages = run?.messages ?? [];
+    if (debateFilter === "all") return messages;
+    const match: Record<Exclude<DebateFilter, "all">, (actor: string) => boolean> = {
+      evidence: (a) => a.includes("Evidence"),
+      policy: (a) => a.includes("Policy"),
+      buyer: (a) => a.includes("Buyer-Sympathy"),
+      "red-team": (a) => a.includes("Red-Team"),
+    };
+    return messages.filter((m) => match[debateFilter](m.actor));
+  }, [run, debateFilter]);
+
+  const pipelineDurations = useMemo(() => {
+    const out: Partial<Record<string, number | null>> = {};
+    const phases = run?.phases ?? [];
+    const take = (key: string, ms: number | null) => {
+      if (ms == null) return;
+      out[key] = Math.max(out[key] ?? 0, ms);
+    };
+    for (const ph of phases) {
+      const a = ph.actor ?? "";
+      if (a.startsWith("Hound")) take("hound", ph.duration_ms);
+      else if (a.startsWith("Prosecutor")) take("prosecutor", ph.duration_ms);
+      else if (a.includes("Red-Team") || a.includes("Jury")) {
+        take("red-team", ph.duration_ms);
+        take("jurors", ph.duration_ms);
+      } else if (a.startsWith("Judge")) take("judge", ph.duration_ms);
+      else if (a.startsWith("Arbiter")) take("arbiter", ph.duration_ms);
+    }
+    return out;
+  }, [run]);
+
   return (
     <div>
-      {/* Floating Pill Nav */}
-      <div className="floating-nav-wrap">
-        <header className="floating-nav">
-          <div className="brand-cluster">
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span className="brand-mark">P</span>
-              <span>PHALANX</span>
-            </Link>
-            <span className="chip obsidian">PayPal Sandbox</span>
-          </div>
-
-          <nav className="nav-links" aria-label="Workbench navigation" ref={navRef}>
-            <span className="nav-pill" aria-hidden="true" />
-            <Link href="/" className="nav-link">
-              Overview
-            </Link>
-            <Link href="/dashboard" className="nav-link active">
-              Disputes
-            </Link>
-            <Link href="/guide" className="nav-link">
-              Guide ↗
-            </Link>
-          </nav>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <CommandBar
+        envMode={detail.dispute.source === "sandbox" ? "sandbox" : "seeded"}
+        links={[
+          { href: "/", label: "Overview" },
+          { href: "/dashboard", label: "Disputes", active: true },
+          { href: "/guide", label: "Guide ↗" },
+        ]}
+        actions={
+          <>
             <Link className="btn" href="/dashboard" style={{ fontSize: 13, padding: "6px 14px" }}>
               ← All disputes
             </Link>
@@ -435,9 +565,9 @@ export default function DisputeDetailPage() {
             >
               GitHub ↗
             </a>
-          </div>
-        </header>
-      </div>
+          </>
+        }
+      />
 
       <main className="detail-wrap">
         {/* Breadcrumbs */}
@@ -461,6 +591,10 @@ export default function DisputeDetailPage() {
           </div>
         )}
 
+        <SwarmPipeline durations={pipelineDurations} />
+
+        <div className="detail-split">
+          <div className="detail-split-left">
         {/* ========================================================
             BLOCK 1: Practical Verdict Summary Card (Top Hero)
             ======================================================== */}
@@ -491,7 +625,10 @@ export default function DisputeDetailPage() {
                   </span>
                 )}
               </div>
-              {/* Score gauge — thresholds 35 / 75, the real bands */}
+              {/* Score gauge + radial meter — thresholds 35 / 75, the real bands */}
+              <div className="score-meter-row">
+                <RadialScoreMeter score={score} />
+                <div className="score-gauge-col">
               <div className="score-gauge" role="img" aria-label={`Checklist score ${score} out of 100`}>
                 <div
                   className={`score-gauge-fill ${verdict === "CONTEST_HARD_PROOF" ? "contest" : verdict === "DE_ESCALATE_OFFER" ? "offer" : "concede"}${gaugePulse ? " pulse" : ""}`}
@@ -508,6 +645,8 @@ export default function DisputeDetailPage() {
                 <span>0 · Concede &lt;35</span>
                 <span>Offer 35–74</span>
                 <span>Contest ≥75 · 100</span>
+              </div>
+                </div>
               </div>
             </div>
 
@@ -542,6 +681,9 @@ export default function DisputeDetailPage() {
                 rel="noreferrer"
               >
                 Download PDF Dossier ↗
+                <span className="pdf-page-badge font-mono tabular-nums">
+                  {5 + attached.length} pages
+                </span>
               </a>
             </div>
           </div>
@@ -562,7 +704,7 @@ export default function DisputeDetailPage() {
             {practicalReasons.length > 0 ? (
               <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
                 {practicalReasons.map((r, i) => (
-                  <li key={i} className="stagger-item" style={{ animationDelay: `${i * 50}ms` }}>{r}</li>
+                  <li key={i} className="stagger-item" style={{ animationDelay: `${i * 70}ms` }}>{r}</li>
                 ))}
               </ul>
             ) : (
@@ -583,11 +725,7 @@ export default function DisputeDetailPage() {
           )}
         </div>
 
-        {/* ========================================================
-            BLOCK 2 & 3: Named Gaps (Left) + Attached Evidence Tray (Right)
-            ======================================================== */}
-        <div className="grid-2" style={{ gap: 20 }}>
-          {/* BLOCK 2: Named Gaps & Actionable Fixes */}
+        {/* BLOCK 2: Named Gaps & Actionable Fixes (left column) */}
           <div className="card-white" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-ink)" }}>
@@ -617,9 +755,14 @@ export default function DisputeDetailPage() {
                 {namedGaps.slice(0, 3).map((g, gi) => (
                   <div
                     key={g.code}
-                    className="gap-card stagger-item"
+                    className={`gap-card stagger-item${highlightedEvidenceType === g.recommendedEvidenceType ? " highlighted" : ""}`}
+                    onMouseEnter={() => setHighlightedEvidenceType(g.recommendedEvidenceType)}
+                    onMouseLeave={() => setHighlightedEvidenceType(null)}
+                    onFocus={() => setHighlightedEvidenceType(g.recommendedEvidenceType)}
+                    onBlur={() => setHighlightedEvidenceType(null)}
+                    tabIndex={0}
                     style={{
-                      animationDelay: `${gi * 50}ms`,
+                      animationDelay: `${gi * 70}ms`,
                       padding: "12px 16px",
                       background: "var(--bg-muted)",
                       borderRadius: "var(--radius-card)",
@@ -644,7 +787,14 @@ export default function DisputeDetailPage() {
                       <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
                         Flagged by {g.citedBy.length}/3 Jurors ({g.rawCount} findings collapsed)
                       </span>
-                      <span className="chip obsidian gap-attach-btn" style={{ fontSize: 11, cursor: "pointer" }} onClick={() => setIsAttaching(true)}>
+                      <span
+                        className="chip obsidian gap-attach-btn"
+                        style={{ fontSize: 11, cursor: "pointer" }}
+                        onClick={() => {
+                          setEvidenceType(g.recommendedEvidenceType);
+                          setIsAttaching(true);
+                        }}
+                      >
                         Fix: Attach {g.recommendedEvidenceType}
                       </span>
                     </div>
@@ -654,20 +804,37 @@ export default function DisputeDetailPage() {
             )}
           </div>
 
-          {/* BLOCK 3: Attached Bills & Evidence Tray */}
+          </div>
+          <div className="detail-split-right">
+          {/* BLOCK 3: Evidence Vault (right column) */}
           <div className="card-white" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-ink)" }}>
                 Evidence &amp; Attached Bills ({attached.length})
               </h3>
               <button
-                className="primary"
+                className={`primary${highlightedEvidenceType ? " evidence-highlight" : ""}`}
                 onClick={() => setIsAttaching(true)}
                 style={{ fontSize: 12.5, padding: "5px 14px" }}
               >
                 + Attach Bill / Evidence
               </button>
             </div>
+
+            {highlightedEvidenceType && (
+              <div className="evidence-hint" role="status">
+                Gap needs <b>{highlightedEvidenceType}</b> — attach that category to recover the points.
+              </div>
+            )}
+
+            {lastAttach && (
+              <HashScrambler
+                hash={lastAttach.sha256}
+                quality={lastAttach.quality}
+                delta={lastAttach.scoreDelta}
+                fileName={lastAttach.fileName}
+              />
+            )}
 
             {attached.length === 0 ? (
               <div
@@ -745,7 +912,6 @@ export default function DisputeDetailPage() {
               </div>
             )}
           </div>
-        </div>
 
         {/* Attachment Upload Modal */}
         {isAttaching && (
@@ -822,6 +988,11 @@ export default function DisputeDetailPage() {
                       if (f) setSelectedFile(f);
                     }}
                   >
+                    {isDragOver && (
+                      <svg className="marching-ants" aria-hidden="true" preserveAspectRatio="none" viewBox="0 0 100 100">
+                        <rect x="1.5" y="1.5" width="97" height="97" rx="10" />
+                      </svg>
+                    )}
                     <span className="dropzone-icon">⇪</span>
                     <p style={{ margin: "6px 0 10px", fontSize: 13, color: "var(--text-secondary)" }}>
                       Drop a bill or courier receipt here, or choose a file below. The real SHA-256 is shown after upload.
@@ -864,7 +1035,24 @@ export default function DisputeDetailPage() {
           <div className={`approval-gate-card${gateUnlocked ? " unlocked" : ""}${justApproved ? " gate-just-approved" : ""}`}>
             <div className="approval-gate-header">
               <h3>
-                <span className={`gate-lock${gateUnlocked ? " unlocked" : ""}`}>{gateUnlocked ? "🔓" : "🔒"}</span>{" "}
+                <svg
+                  className={`gate-lock-svg${gateUnlocked ? " unlocked" : ""}`}
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor" />
+                  <path
+                    className="gate-shackle"
+                    d="M8 10 V7 a4 4 0 0 1 8 0 v3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="12" cy="14.5" r="1.6" fill="var(--bg-white)" />
+                </svg>{" "}
                 Human Approval Gate (Strictly Mandatory)
               </h3>
               <span className="chip obsidian">
@@ -929,6 +1117,8 @@ export default function DisputeDetailPage() {
             </p>
           </div>
         )}
+          </div>
+        </div>
 
         {/* ========================================================
             BLOCK 4: Collapsible Full Debate Section (Bottom Accordion)
@@ -1011,14 +1201,45 @@ export default function DisputeDetailPage() {
               {run?.messages && run.messages.length > 0 && (
                 <div>
                   <h4 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 600 }}>Message Transcript</h4>
-                  {run.messages.map((m, i) => (
-                    <div key={i} className={`msg ${m.kind}`}>
-                      <div className="actor">
-                        {m.actor} · Iteration {m.iteration} · {m.kind}
+                  <div className="debate-filters" role="tablist" aria-label="Filter debate transcript">
+                    {(
+                      [
+                        ["all", "All"],
+                        ["evidence", "Evidence Juror"],
+                        ["policy", "Policy Juror"],
+                        ["buyer", "Buyer-Sympathy Juror"],
+                        ["red-team", "Red-Team"],
+                      ] as [DebateFilter, string][]
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        aria-selected={debateFilter === key}
+                        className={`debate-filter-pill${debateFilter === key ? " active" : ""}`}
+                        onClick={() => setDebateFilter(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <span className="debate-filter-count font-mono tabular-nums">
+                      {filteredMessages.length} / {run.messages.length} messages
+                    </span>
+                  </div>
+                  {filteredMessages.length === 0 ? (
+                    <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+                      No messages from this juror in this run.
+                    </p>
+                  ) : (
+                    filteredMessages.map((m, i) => (
+                      <div key={i} className={`msg ${m.kind}`}>
+                        <div className="actor">
+                          {m.actor} · Iteration {m.iteration} · {m.kind}
+                        </div>
+                        <pre>{cleanMarkdown(m.text)}</pre>
                       </div>
-                      <pre>{cleanMarkdown(m.text)}</pre>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
               </div>

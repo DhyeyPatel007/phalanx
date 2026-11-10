@@ -31,6 +31,13 @@ import {
   computeAttachedEvidenceDelta,
 } from "../src/lib/evidence-scorer";
 import {
+  buildProvideEvidenceInput,
+  decideExecute,
+  isSandboxBaseUrl,
+  parseTrackingInfo,
+} from "../src/lib/execute-gate";
+import type { Approval, ExecutionRecord } from "../src/lib/types";
+import {
   addAttachedEvidence,
   clearAttachedEvidence,
   getApproval,
@@ -672,6 +679,174 @@ async function webhookUpdateChecks(): Promise<void> {
   check("Seeded B restored after webhook checks", "WAITING_FOR_SELLER_RESPONSE", getDispute("PP-D-88413")!.status);
 }
 
+// ---- Execute gate (structural rebuild) ----
+// Pure-function checks for src/lib/execute-gate.ts. No network, no live
+// PayPal calls: every refusal path is decided before any HTTP happens.
+function executeGateChecks(): void {
+  // Sandbox host guard.
+  check("Sandbox base api-m.sandbox.paypal.com passes", true, isSandboxBaseUrl("https://api-m.sandbox.paypal.com"));
+  check("Sandbox base api.sandbox.paypal.com passes", true, isSandboxBaseUrl("https://api.sandbox.paypal.com"));
+  check("Sandbox subdomain passes", true, isSandboxBaseUrl("https://foo.sandbox.paypal.com/v1"));
+  check("Production api-m.paypal.com refuses", false, isSandboxBaseUrl("https://api-m.paypal.com"));
+  check("Production www.paypal.com refuses", false, isSandboxBaseUrl("https://www.paypal.com"));
+  check("Localhost refuses", false, isSandboxBaseUrl("http://localhost:3000"));
+  check("Unparseable URL refuses", false, isSandboxBaseUrl("not-a-url"));
+
+  // Tracking info parsing (seed format: "FEDEX 774829104829, DELIVERED ...").
+  const fedex = parseTrackingInfo("FEDEX 774829104829, DELIVERED to PayPal transaction address, delivered 2026-10-25");
+  check("parseTrackingInfo carrier is FEDEX", "FEDEX", fedex?.carrier_name);
+  check("parseTrackingInfo number is 774829104829", "774829104829", fedex?.tracking_number);
+  const usps = parseTrackingInfo("USPS SIM-USPS-1109482, no delivery — scan stalled");
+  check("parseTrackingInfo USPS number parses", "SIM-USPS-1109482", usps?.tracking_number);
+  check("parseTrackingInfo returns null without carrier/number", null, parseTrackingInfo("no tracking here"));
+
+  // provide-evidence input: only requested types, tracking_info from artifact.
+  const d = dispute({ id: "PP-D-TEST" });
+  const trackingArt = artifact("t1", "tracking", "FEDEX 774829104829, DELIVERED to PayPal transaction address");
+  const input = buildProvideEvidenceInput(d, [trackingArt]);
+  check("provide-evidence type is PROOF_OF_FULFILLMENT", "PROOF_OF_FULFILLMENT", input.evidences[0]?.evidence_type);
+  check(
+    "provide-evidence carries tracking_info",
+    "774829104829",
+    (input.evidences[0]?.evidence_info?.tracking_info as { tracking_number?: string } | undefined)?.tracking_number,
+  );
+  const noTracking = buildProvideEvidenceInput(d, []);
+  check("provide-evidence without tracking still sends the type", "PROOF_OF_FULFILLMENT", noTracking.evidences[0]?.evidence_type);
+  const snad = dispute({ id: "PP-D-TEST-SNAD", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED" });
+  check("SNAD provide-evidence defaults to OTHER", "OTHER", buildProvideEvidenceInput(snad, []).evidences[0]?.evidence_type);
+
+  // Gate decisions.
+  const base = {
+    dispute: dispute({ id: "PP-D-TEST" }),
+    approval: null as Approval | null,
+    existingExecution: null as ExecutionRecord | null,
+    latestRun: null,
+    paypalBaseUrl: "https://api-m.sandbox.paypal.com",
+    paypalConfigured: true,
+  };
+  const mkApproval = (over: Partial<Approval> = {}): Approval => ({
+    id: "appr-test-1",
+    dispute_id: "PP-D-TEST",
+    action: "provide-evidence",
+    approved_by: "merchant-test",
+    approved_at: new Date().toISOString(),
+    run_id: "run-test-1",
+    ...over,
+  });
+  const mkRun = () =>
+    ({
+      id: "run-test-1",
+      dispute_id: "PP-D-TEST",
+      iterations: [],
+      messages: [],
+      score: 85,
+      gaps: [],
+      verdict: "CONTEST_HARD_PROOF",
+      ev_display: null,
+      status: "AWAITING_APPROVAL",
+      duration_ms: 100,
+      created_at: new Date().toISOString(),
+    }) as SwarmRun;
+
+  const noAppr = decideExecute(base);
+  check("Gate: no approval -> 403 APPROVAL_REQUIRED", "APPROVAL_REQUIRED", !noAppr.ok ? noAppr.error : "ok");
+
+  const staged = decideExecute({
+    ...base,
+    dispute: dispute({ id: "PP-D-TEST", status: "UNDER_REVIEW" }),
+    approval: mkApproval(),
+    latestRun: mkRun(),
+  });
+  check("Gate: wrong stage -> 409 STAGE_BLOCKED", "STAGE_BLOCKED", !staged.ok ? staged.error : "ok");
+
+  const disallowed = decideExecute({
+    ...base,
+    dispute: dispute({ id: "PP-D-TEST", allowed_actions: ["send-message"] }),
+    approval: mkApproval(),
+    latestRun: mkRun(),
+  });
+  check("Gate: disallowed action -> 409 DISALLOWED_ACTION", "DISALLOWED_ACTION", !disallowed.ok ? disallowed.error : "ok");
+
+  const typeMismatch = decideExecute({
+    ...base,
+    dispute: dispute({
+      id: "PP-D-TEST",
+      allowed_actions: ["make-offer", "provide-evidence"],
+      allowed_response_options: { make_offer: { offer_types: ["REFUND_WITH_RETURN"] } },
+    }),
+    approval: mkApproval({ action: "make-offer" }),
+    latestRun: mkRun(),
+  });
+  check("Gate: offer type mismatch -> 409 DISALLOWED_ACTION", "DISALLOWED_ACTION", !typeMismatch.ok ? typeMismatch.error : "ok");
+
+  const mismatch = decideExecute({
+    ...base,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+    requestedAction: "make-offer",
+  });
+  check("Gate: action mismatch -> 409 ACTION_MISMATCH", "ACTION_MISMATCH", !mismatch.ok ? mismatch.error : "ok");
+
+  const dup = decideExecute({
+    ...base,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+    existingExecution: {
+      dispute_id: "PP-D-TEST",
+      approved_action: "provide-evidence",
+      approved_by: "merchant-test",
+      approved_at: new Date().toISOString(),
+      paypal_status: "EXECUTED",
+      paypal_debug_id: "dbg-1",
+      idempotency_key: "PP-D-TEST:provide-evidence:appr-test-1",
+      follow_up_detail_status: "WAITING_FOR_SELLER_RESPONSE",
+      note: "",
+    },
+  });
+  check("Gate: duplicate execution -> 409 DUPLICATE_EXECUTION", "DUPLICATE_EXECUTION", !dup.ok ? dup.error : "ok");
+
+  const stale = decideExecute({
+    ...base,
+    approval: mkApproval(),
+    latestRun: { ...mkRun(), id: "run-test-2" },
+  });
+  check("Gate: stale approval -> 409 STALE_APPROVAL", "STALE_APPROVAL", !stale.ok ? stale.error : "ok");
+
+  const seeded = decideExecute({
+    ...base,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+  });
+  check("Gate: seeded dispute -> 409 LIVE_EXECUTION_NOT_ENABLED", "LIVE_EXECUTION_NOT_ENABLED", !seeded.ok ? seeded.error : "ok");
+
+  const sandboxDispute = dispute({ id: "PP-D-TEST", source: "sandbox" });
+  const prodBase = decideExecute({
+    ...base,
+    dispute: sandboxDispute,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+    paypalBaseUrl: "https://api-m.paypal.com",
+  });
+  check("Gate: production base URL -> 409 NOT_SANDBOX_BASE_URL", "NOT_SANDBOX_BASE_URL", !prodBase.ok ? prodBase.error : "ok");
+
+  const notConfigured = decideExecute({
+    ...base,
+    dispute: sandboxDispute,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+    paypalConfigured: false,
+  });
+  check("Gate: PayPal not configured -> 409 PAYPAL_NOT_CONFIGURED", "PAYPAL_NOT_CONFIGURED", !notConfigured.ok ? notConfigured.error : "ok");
+
+  const ok = decideExecute({
+    ...base,
+    dispute: sandboxDispute,
+    approval: mkApproval(),
+    latestRun: mkRun(),
+  });
+  check("Gate: gated sandbox dispute passes", true, ok.ok);
+}
+
 async function main(): Promise<void> {
   await pdfChecks();
   await draftNoKeyChecks();
@@ -679,6 +854,7 @@ async function main(): Promise<void> {
   await swarmAndTrackerChecks();
   await practicalReasoningAndEvidenceChecks();
   await webhookUpdateChecks();
+  executeGateChecks();
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }
