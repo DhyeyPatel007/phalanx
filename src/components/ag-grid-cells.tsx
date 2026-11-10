@@ -118,6 +118,7 @@ export function ScoreGaugeCell(p: { value: number | null }) {
           className={`ag-gauge-fill ${gaugeClass(score)}`}
           style={{ width: `${width}%` }}
         />
+        <span className="ag-gauge-tick" style={{ left: "35%" }} />
         <span className="ag-gauge-tick" style={{ left: "75%" }} />
       </span>
     </span>
@@ -151,7 +152,7 @@ export function VerdictBadgeCell(p: {
 export function ActionHoverCell(p: { data: { id: string } }) {
   return (
     <a className="ag-action-btn" href={`/disputes/${p.data.id}`}>
-      Inspect Dossier <span aria-hidden="true">→</span>
+      Open Defense Studio <span aria-hidden="true">→</span>
     </a>
   );
 }
