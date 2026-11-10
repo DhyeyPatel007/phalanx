@@ -880,11 +880,15 @@ async function liveSyncChecks(): Promise<void> {
         gross_amount: { currency_code: "USD", value: "480.00" },
       },
     ],
+    // NOTE: PayPal returns HATEOAS rels SNAKE_CASE (accept_claim) — the
+    // fabricated detail must use the real shape, or the test cannot catch
+    // a normalization miss. (A kebab-case fixture here hid exactly this
+    // bug until the live approve calls failed on Nov 11, 2026.)
     links: [
       { rel: "self", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213" },
-      { rel: "provide-evidence", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/provide-evidence" },
-      { rel: "accept-claim", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/accept-claim" },
-      { rel: "send-message", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/send-message" },
+      { rel: "provide_evidence", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/provide-evidence" },
+      { rel: "accept_claim", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/accept-claim" },
+      { rel: "send_message", href: "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-EEM-10198213/send-message" },
     ],
     allowed_response_options: { accept_claim: { accept_claim_types: ["REFUND"] } },
   };
@@ -901,6 +905,9 @@ async function liveSyncChecks(): Promise<void> {
   check("Live-sync row status", "WAITING_FOR_SELLER_RESPONSE", stored.status);
   check("Live-sync allowed actions include provide-evidence", true, stored.allowed_actions.includes("provide-evidence"));
   check("Live-sync allowed actions exclude self link", false, stored.allowed_actions.includes("self"));
+  check("Live-sync snake_case rels normalize to kebab", "provide-evidence,accept-claim,send-message", stored.allowed_actions.join(","));
+  check("Live-sync no snake_case action survives", false, stored.allowed_actions.some((a) => a.includes("_")));
+  check("Live-sync options keys stay snake_case", true, stored.allowed_response_options?.accept_claim?.accept_claim_types?.includes("REFUND") ?? false);
   check("Live-sync derives 1 invoice artifact", 1, getArtifacts("PP-R-EEM-10198213").length);
   check("Live-sync artifact kind is invoice", "invoice", getArtifacts("PP-R-EEM-10198213")[0]?.kind);
   check("Live-sync artifact carries seller tx id", true, getArtifacts("PP-R-EEM-10198213")[0]?.summary.includes("2LX90748BA432971S") ?? false);
@@ -939,7 +946,7 @@ async function liveSyncChecks(): Promise<void> {
   const refreshed = ingestPayPalDispute({
     ...liveDetail,
     status: "UNDER_REVIEW",
-    links: [{ rel: "self" }, { rel: "send-message" }],
+    links: [{ rel: "self" }, { rel: "send_message" }],
   });
   check("Live-sync refresh returns ok", true, refreshed.ok);
   check("Live-sync refresh is not a create", false, refreshed.created);
