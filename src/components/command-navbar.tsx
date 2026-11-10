@@ -7,8 +7,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useNavPill, useSpotlight } from "@/lib/ui-effects";
+import { useAuth } from "./use-auth";
+import authStyles from "./auth.module.css";
 
 const INVITE_KEY = "phalanx-invite-email";
 
@@ -141,6 +144,13 @@ export default function CommandNavbar({
   const navRef = useRef<HTMLElement | null>(null);
   useNavPill(navRef);
   useSpotlight();
+  const { authed, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
 
   const tabs = [
     { key: "queue", href: "/#queue", label: "Command Queue" },
@@ -213,6 +223,22 @@ export default function CommandNavbar({
             </span>
             Sync PayPal Disputes
           </button>
+          <Link
+            href={authed ? "/dashboard" : "/login"}
+            className={`primary ${authStyles.authCta}`}
+          >
+            {authed ? "Open dashboard" : "Enter dashboard"}
+          </Link>
+          {authed && (
+            <button
+              type="button"
+              className={authStyles.logoutBtn}
+              onClick={handleLogout}
+              title="Clear the demo login flag in this browser"
+            >
+              Log out
+            </button>
+          )}
           <InvitePopover />
         </div>
       </header>
