@@ -30,6 +30,25 @@ export interface IngestResult {
   event_id?: string;
 }
 
+/**
+ * Normalize a PayPal HATEOAS link rel to PHALANX's action name.
+ * PayPal returns rels snake_case (accept_claim, provide_evidence,
+ * make_offer, send_message); PHALANX's action names are kebab-case
+ * (accept-claim, provide-evidence, make-offer) everywhere — the approve
+ * route, the execute gate, and the arbiter all compare with
+ * `.includes(action)` on kebab-case. A live row stored with snake_case
+ * actions can never be approved or executed (verified live Nov 11, 2026:
+ * all three real Sandbox disputes refused approve with "action
+ * accept-claim is not allowed"). Normalize at ingest, in every path
+ * that builds allowed_actions from PayPal links.
+ * NOTE: allowed_response_options keys stay snake_case — the arbiter
+ * reads them as `.make_offer` / `.accept_claim`. Only the rel values
+ * are normalized, never the options keys.
+ */
+function normalizeActionRel(rel: string): string {
+  return rel.replace(/_/g, "-");
+}
+
 /** Extract the dispute id from a CUSTOMER.DISPUTE.CREATED resource. */
 function disputeIdFromResource(resource: Record<string, unknown>): string | null {
   const v =
@@ -103,7 +122,8 @@ function patchFromResource(
   if (Array.isArray(resource.links)) {
     patch.allowed_actions = (resource.links as { rel?: unknown }[])
       .map((l) => l.rel)
-      .filter((r): r is string => typeof r === "string" && r !== "self");
+      .filter((r): r is string => typeof r === "string" && r !== "self")
+      .map(normalizeActionRel);
   }
   if (
     resource.allowed_response_options &&
@@ -205,7 +225,7 @@ async function handleDisputeUpdate(
       allowed_actions: resolved
         ? []
         : links.length > 0
-          ? links.map((l) => l.rel).filter((r) => r !== "self")
+          ? links.map((l) => l.rel).filter((r) => r !== "self").map(normalizeActionRel)
           : existing.allowed_actions,
       allowed_response_options:
         (detail.allowed_response_options as Dispute["allowed_response_options"]) ??
@@ -318,7 +338,7 @@ export async function ingestVerifiedEvent(
   try {
     const detail = (await getPayPalDispute(disputeId)) as Record<string, unknown>;
     const links = (detail.links ?? []) as { rel: string }[];
-    const allowed = links.map((l) => l.rel).filter((r) => r !== "self");
+    const allowed = links.map((l) => l.rel).filter((r) => r !== "self").map(normalizeActionRel);
     const d: Dispute = {
       id: disputeId,
       source: "sandbox",
@@ -383,7 +403,8 @@ function disputeFromDetail(detail: Record<string, unknown>): Dispute | null {
   const links = (detail.links ?? []) as { rel?: unknown }[];
   const allowed = links
     .map((l) => l.rel)
-    .filter((r): r is string => typeof r === "string" && r !== "self");
+    .filter((r): r is string => typeof r === "string" && r !== "self")
+    .map(normalizeActionRel);
   return {
     id,
     source: "sandbox",
@@ -490,7 +511,8 @@ export async function ensureLiveDispute(id: string): Promise<Dispute | null> {
 export interface LiveSyncResult {
   /** Ids newly ingested into the store by this sync. */
   added: string[];
-  /** Ids already present in the store (left alone, no re-fetch). */
+  /** Ids already present in the store. Sandbox rows are re-fetched for
+   *  a status/actions refresh (see below); seeded rows are left alone. */
   alreadyPresent: string[];
   /** Non-null when the PayPal list call failed (or PayPal is not
    *  configured — in which case this is null and added is empty, i.e.
@@ -501,9 +523,14 @@ export interface LiveSyncResult {
 /**
  * Pull-sync: list live disputes from PayPal and ingest every id missing
  * from the store (full detail fetch per missing id, bounded). Ids already
- * stored are left alone — status refresh for those stays on the webhook
- * path. Fail-soft: a list/fetch failure returns liveError and an empty
- * `added` list; the caller keeps serving seeded rows.
+ * stored as sandbox rows are ALSO re-fetched (bounded by the same cap)
+ * so status / allowed actions refresh — the webhook path is the nominal
+ * refresh route, but in Sandbox PayPal has delivered zero dispute events
+ * for this app, so without a sync refresh a stored live row would go
+ * stale forever (e.g. after an Execute changes its PayPal status).
+ * Seeded rows are never re-fetched. Fail-soft: a list/fetch failure
+ * returns liveError and an empty `added` list; the caller keeps serving
+ * seeded rows.
  */
 export async function syncLiveDisputes(): Promise<LiveSyncResult> {
   const empty: LiveSyncResult = { added: [], alreadyPresent: [], liveError: null };
@@ -529,18 +556,25 @@ export async function syncLiveDisputes(): Promise<LiveSyncResult> {
     const id =
       (it.dispute_id as string | undefined) ?? (it.id as string | undefined);
     if (typeof id !== "string" || id.length === 0) continue;
-    if (getDispute(id)) {
+    const existing = getDispute(id);
+    if (existing && existing.source !== "sandbox") {
+      // Seeded row: never re-fetched, never overwritten.
       alreadyPresent.push(id);
       continue;
     }
-    if (fetched >= LIVE_SYNC_MAX_DETAIL_FETCHES) continue;
+    if (fetched >= LIVE_SYNC_MAX_DETAIL_FETCHES) {
+      if (existing) alreadyPresent.push(id);
+      continue;
+    }
     fetched += 1;
     try {
       const detail = (await getPayPalDispute(id, LIVE_SYNC_TIMEOUT_MS)) as Record<string, unknown>;
       const res = ingestPayPalDispute(detail);
       if (res.ok && res.created && res.dispute_id) added.push(res.dispute_id);
+      else if (existing) alreadyPresent.push(id);
     } catch {
       // One bad detail must not abort the sync of the rest.
+      if (existing) alreadyPresent.push(id);
       continue;
     }
   }
