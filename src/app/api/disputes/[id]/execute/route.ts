@@ -17,6 +17,7 @@ import {
   provideEvidence,
 } from "@/lib/paypal";
 import { buildProvideEvidenceInput, decideExecute } from "@/lib/execute-gate";
+import { pickAcceptClaimType } from "@/lib/arbiter";
 import { buildEvidencePdf } from "@/lib/pdf";
 import { computeOfferAmount } from "@/lib/scorer";
 
@@ -146,8 +147,10 @@ export async function POST(
     } else if (approved.action === "accept-claim") {
       const types =
         dispute.allowed_response_options?.accept_claim?.accept_claim_types;
-      const claimType =
-        types && types.length > 0 ? types[0] : "REFUND";
+      // Never send types[0] blindly: PARTIAL_REFUND needs a
+      // refund_amount we do not send (PayPal rejects it with
+      // INVALID_ACCEPT_CLAIM_TYPE). Prefer REFUND, no extra fields.
+      const claimType = pickAcceptClaimType(types);
       result = await acceptClaim(id, claimType, note);
     } else {
       return NextResponse.json(

@@ -41,6 +41,24 @@ export function checkOfferAcceptTypes(
   return null;
 }
 
+/**
+ * Pick the accept_claim_type to send to PayPal. Prefer REFUND (full
+ * refund, no extra fields) whenever the dispute lists it. Never blindly
+ * take types[0]: PayPal lists PARTIAL_REFUND first on some disputes,
+ * and that type REQUIRES a refund_amount field — sending it without one
+ * is rejected with INVALID_ACCEPT_CLAIM_TYPE (verified live Nov 11,
+ * 2026 on all three real Sandbox disputes). REFUND_WITH_RETURN and
+ * REFUND_WITH_RETURN_SHIPMENT_LABEL need return-shipping fields too,
+ * so they are only ever used if REFUND is absent (and then the caller
+ * must supply the required fields — today it does not, so they are
+ * never picked over REFUND).
+ */
+export function pickAcceptClaimType(types: string[] | undefined): string {
+  if (types && types.includes("REFUND")) return "REFUND";
+  if (types && types.length > 0) return types[0];
+  return "REFUND";
+}
+
 /** Downgrade resolution: if the verdict's action is not allowed, fall to
  *  the highest allowed action that fits (make-offer → send-message).
  *  If nothing fits, stop at AWAITING_APPROVAL with the blocker shown. */

@@ -24,7 +24,7 @@ import {
   validateDraftAmounts,
 } from "../src/lib/swarm";
 import { getDispute, getSwarmProgress, loadSeed } from "../src/lib/store";
-import { stageGate } from "../src/lib/arbiter";
+import { pickAcceptClaimType, stageGate } from "../src/lib/arbiter";
 import type { Dispute, EvidenceArtifact, SwarmRun } from "../src/lib/types";
 import {
   CANONICAL_GAPS,
@@ -707,6 +707,15 @@ function executeGateChecks(): void {
   const usps = parseTrackingInfo("USPS SIM-USPS-1109482, no delivery — scan stalled");
   check("parseTrackingInfo USPS number parses", "SIM-USPS-1109482", usps?.tracking_number);
   check("parseTrackingInfo returns null without carrier/number", null, parseTrackingInfo("no tracking here"));
+
+  // accept-claim type pick: REFUND wins over a first-listed PARTIAL_REFUND
+  // (PARTIAL_REFUND needs a refund_amount we never send — PayPal 400s it
+  // with INVALID_ACCEPT_CLAIM_TYPE; verified live Nov 11, 2026).
+  check("pickAcceptClaimType prefers REFUND over PARTIAL_REFUND", "REFUND", pickAcceptClaimType(["PARTIAL_REFUND", "REFUND"]));
+  check("pickAcceptClaimType keeps REFUND when alone", "REFUND", pickAcceptClaimType(["REFUND"]));
+  check("pickAcceptClaimType falls back to first listed type", "REFUND_WITH_RETURN", pickAcceptClaimType(["REFUND_WITH_RETURN"]));
+  check("pickAcceptClaimType defaults to REFUND when empty", "REFUND", pickAcceptClaimType([]));
+  check("pickAcceptClaimType defaults to REFUND when undefined", "REFUND", pickAcceptClaimType(undefined));
 
   // provide-evidence input: only requested types, tracking_info from artifact.
   const d = dispute({ id: "PP-D-TEST" });
