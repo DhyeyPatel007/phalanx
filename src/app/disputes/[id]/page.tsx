@@ -38,6 +38,9 @@ interface DetailData {
   attached_evidence?: AttachedEvidence[];
   base_score?: number;
   final_score?: number;
+  evidenceHoldWarning?: boolean;
+  missingChecklistPoints?: number;
+  emptySlots?: { key: string; label: string; points: number }[];
   practical_reasons?: string[];
   named_gaps?: NamedGap[];
   run: (SwarmRun & { issue_framing?: string | null; verdict_reasoning?: string | null }) | null;
@@ -169,6 +172,11 @@ export default function DisputeDetailPage() {
   const [justApproved, setJustApproved] = useState(false);
   const [gaugePulse, setGaugePulse] = useState(false);
 
+  // Pre-concede evidence hold (workstream B): merchant confirmation
+  // that no tracking / delivery proof / fulfillment log exists, required
+  // before an accept-claim approval on a bare live dispute.
+  const [confirmedNoEvidence, setConfirmedNoEvidence] = useState(false);
+
   const loadDispute = useCallback(async (disputeId: string) => {
     try {
       setError(null);
@@ -270,10 +278,17 @@ export default function DisputeDetailPage() {
       const res = await fetch(`/api/disputes/${disputeId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, approved_by: "merchant" }),
+        body: JSON.stringify({
+          action,
+          approved_by: "merchant",
+          ...(confirmedNoEvidence
+            ? { confirmed_no_evidence: true }
+            : {}),
+        }),
       });
       if (res.ok) {
         await loadDispute(disputeId);
+        setConfirmedNoEvidence(false);
         setNotice(`Approved action: ${action}`);
         setJustApproved(true);
         window.setTimeout(() => setJustApproved(false), 1300);
@@ -392,6 +407,16 @@ export default function DisputeDetailPage() {
       : verdict === "DE_ESCALATE_OFFER"
         ? "make-offer"
         : "accept-claim";
+
+  // Pre-concede evidence hold (workstream B): the hold applies when the
+  // API flags a bare live dispute AND the recommended action is a full
+  // refund (accept-claim). The Approve button stays disabled until the
+  // merchant checks the confirmation box.
+  const holdRequiresConfirm = Boolean(
+    detail.evidenceHoldWarning &&
+      verdict === "CONCEDE_FAST_SETTLE" &&
+      actionForVerdict === "accept-claim",
+  );
 
   const isApproveAllowed = Boolean(
     actionForVerdict &&
@@ -882,6 +907,33 @@ export default function DisputeDetailPage() {
               )}
             </div>
 
+            {/* Pre-concede evidence hold banner (workstream B): renders
+                even when no swarm run exists yet — the hold is about the
+                dispute state, not the run. */}
+            {detail.evidenceHoldWarning && (
+              <div
+                className="evidence-hold-banner"
+                role="alert"
+                style={{
+                  background: "#FEF3C7",
+                  border: "2px solid #D97706",
+                  borderRadius: "12px",
+                  padding: "14px 16px",
+                  marginBottom: "16px",
+                  color: "#78350F",
+                  fontSize: "14px",
+                  lineHeight: 1.5,
+                }}
+              >
+                ⚠️ Bare PayPal Payload Detected (Score:{" "}
+                {detail.final_score ?? 0}/100). PayPal supplied 0 tracking
+                or fulfillment records. If you have a carrier receipt, POD,
+                merchant log, or invoice, attach them BEFORE approving —
+                attaching proof raises this dispute to 60 (Offer) or 85–100
+                (Contest).
+              </div>
+            )}
+
             {/* Hardware-style mandatory human approval gate */}
             {run && (
               <div
@@ -964,6 +1016,35 @@ export default function DisputeDetailPage() {
                   </p>
                 )}
 
+                {holdRequiresConfirm && (
+                  <label
+                    className="evidence-hold-confirm"
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "8px",
+                      margin: "12px 0",
+                      fontSize: "14px",
+                      lineHeight: 1.5,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={confirmedNoEvidence}
+                      onChange={(e) =>
+                        setConfirmedNoEvidence(e.target.checked)
+                      }
+                      style={{ marginTop: "3px" }}
+                    />
+                    <span>
+                      I confirm no tracking, delivery proof, or fulfillment
+                      log exists for this transaction (Authorize Full Refund
+                      via accept-claim)
+                    </span>
+                  </label>
+                )}
+
                 {detail.execution && (
                   <p className="gaplist gate-note">
                     Last execution attempt:{" "}
@@ -976,7 +1057,11 @@ export default function DisputeDetailPage() {
                   <button
                     className={`primary ${styles.magnetic}`}
                     onClick={() => approve(detail.dispute.id, actionForVerdict)}
-                    disabled={!isApproveAllowed || loading}
+                    disabled={
+                      !isApproveAllowed ||
+                      loading ||
+                      (holdRequiresConfirm && !confirmedNoEvidence)
+                    }
                   >
                     Approve {actionForVerdict}
                   </button>

@@ -10,6 +10,10 @@ import {
 import { ensureLiveDispute } from "@/lib/ingest";
 import { buildPracticalReasons, deduplicateGaps } from "@/lib/practical-reasoning";
 import { computeAttachedEvidenceDelta } from "@/lib/evidence-scorer";
+import {
+  detectBareDisputeRisk,
+  type EmptySlot,
+} from "@/lib/evidence-hold";
 import { scoreDispute } from "@/lib/scorer";
 
 /** GET /api/disputes/{id} — detail + artifacts + attached evidence + latest run + approval state.
@@ -36,6 +40,16 @@ export async function GET(
   );
   const run = latestRun(id) ?? null;
 
+  // Pre-concede evidence hold (workstream B): bare live disputes score
+  // <35 with zero attached evidence. Derived live on every fetch, so
+  // the flag clears automatically once attachments raise the score.
+  const hold = detectBareDisputeRisk({
+    source: dispute.source,
+    score: deltaCalc.finalScore,
+    attachedCount: attached.length,
+    items: baseCheck.items,
+  });
+
   const practicalReasons = run?.practical_reasons ?? buildPracticalReasons(
     baseCheck.items,
     deltaCalc.verdict,
@@ -57,6 +71,9 @@ export async function GET(
     attached_evidence: attached,
     base_score: baseCheck.score,
     final_score: deltaCalc.finalScore,
+    evidenceHoldWarning: hold.isBare,
+    missingChecklistPoints: hold.missingChecklistPoints,
+    emptySlots: hold.emptySlots,
     practical_reasons: practicalReasons,
     named_gaps: namedGaps,
     run: run
