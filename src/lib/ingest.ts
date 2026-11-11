@@ -7,13 +7,20 @@
 
 import {
   addArtifacts,
+  getArtifacts,
   getDispute,
   logWebhook,
   markWebhookEvent,
   seenWebhookEvent,
   upsertDispute,
 } from "./store";
-import { getPayPalDispute, listPayPalDisputes, paypalConfigured } from "./paypal";
+import {
+  getPayPalDispute,
+  getTrackingForTransaction,
+  listPayPalDisputes,
+  paypalConfigured,
+} from "./paypal";
+import type { PayPalTrackingRecord } from "./paypal";
 import type { Dispute, EvidenceArtifact } from "./types";
 
 /** Bounded per-request timeout for pull-sync reads (live-sync fallback).
@@ -104,6 +111,73 @@ export function artifactsFromDetail(
     });
   });
   return out;
+}
+
+/**
+ * Derive a tracking artifact from a PayPal Tracking API record — pure,
+ * unit-testable. Only a DELIVERED record with a carrier + tracking
+ * number becomes an artifact; anything else (in transit, missing
+ * carrier/number, null record) yields null and is never invented.
+ * The summary states exactly what PayPal reported, in the same literal
+ * style scoreDispute matches on (DELIVERED + carrier + ISO date).
+ */
+export function trackingArtifactFromRecord(
+  disputeId: string,
+  record: PayPalTrackingRecord | null | undefined,
+): EvidenceArtifact | null {
+  if (!record) return null;
+  if (typeof record.status !== "string" || record.status.toLowerCase() !== "delivered") {
+    return null;
+  }
+  if (!record.carrier || !record.trackingNumber) return null;
+  return {
+    id: `${disputeId}-tracking-paypal`,
+    dispute_id: disputeId,
+    kind: "tracking",
+    source: "paypal-tracking",
+    summary:
+      `Carrier ${record.carrier} tracking ${record.trackingNumber} — DELIVERED` +
+      (record.deliveryDate ? ` on ${record.deliveryDate}` : ""),
+    simulated: false,
+  };
+}
+
+/** Timeout for the best-effort Tracking API probe inside ingest. */
+const TRACKING_PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * Best-effort Tracking API probe for one live dispute detail: fetch the
+ * tracker for the detail's seller_transaction_id and, when PayPal
+ * reports DELIVERED with carrier + tracking number, add the single
+ * paypal-tracking artifact (addArtifacts dedupes by id, so this is
+ * idempotent). NEVER throws and never blocks ingest: unconfigured
+ * credentials, 404/403, timeout, or any other failure silently means
+ * "no tracking known" and the dispute keeps its detail-derived invoice
+ * artifact only. Skips the fetch when the artifact already exists.
+ */
+async function maybeAddTrackingArtifact(
+  disputeId: string,
+  detail: Record<string, unknown>,
+): Promise<void> {
+  try {
+    if (getArtifacts(disputeId).some((a) => a.id === `${disputeId}-tracking-paypal`)) {
+      return;
+    }
+    const txs = detail.disputed_transactions;
+    if (!Array.isArray(txs) || txs.length === 0) return;
+    const first = txs[0];
+    if (typeof first !== "object" || first === null) return;
+    const tx = first as Record<string, unknown>;
+    const sellerTx =
+      (tx.seller_transaction_id as string | undefined) ??
+      (tx.buyer_transaction_id as string | undefined);
+    if (!sellerTx) return;
+    const record = await getTrackingForTransaction(sellerTx, TRACKING_PROBE_TIMEOUT_MS);
+    const artifact = trackingArtifactFromRecord(disputeId, record);
+    if (artifact) addArtifacts([artifact]);
+  } catch {
+    // Fail-soft: tracking is a bonus, never a reason to break ingest.
+  }
 }
 
 /**
@@ -354,6 +428,7 @@ export async function ingestVerifiedEvent(
     };
     upsertDispute(d);
     addArtifacts(artifactsFromDetail(disputeId, detail));
+    await maybeAddTrackingArtifact(disputeId, detail);
     markWebhookEvent(eventId);
     logWebhook({ event_id: eventId, result: "INGESTED", detail: `Dispute ${disputeId} stored from live Sandbox detail. Allowed actions: ${allowed.join(", ") || "(none yet)"}.` });
     return { ok: true, dispute_id: disputeId, event_id: eventId };
@@ -502,6 +577,7 @@ export async function ensureLiveDispute(id: string): Promise<Dispute | null> {
     const detail = (await getPayPalDispute(id, LIVE_SYNC_TIMEOUT_MS)) as Record<string, unknown>;
     const res = ingestPayPalDispute(detail);
     if (!res.ok || !res.dispute_id) return null;
+    await maybeAddTrackingArtifact(res.dispute_id, detail);
     return getDispute(res.dispute_id) ?? null;
   } catch {
     return null;
@@ -570,6 +646,7 @@ export async function syncLiveDisputes(): Promise<LiveSyncResult> {
     try {
       const detail = (await getPayPalDispute(id, LIVE_SYNC_TIMEOUT_MS)) as Record<string, unknown>;
       const res = ingestPayPalDispute(detail);
+      if (res.ok && res.dispute_id) await maybeAddTrackingArtifact(res.dispute_id, detail);
       if (res.ok && res.created && res.dispute_id) added.push(res.dispute_id);
       else if (existing) alreadyPresent.push(id);
     } catch {
