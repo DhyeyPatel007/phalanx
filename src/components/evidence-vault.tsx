@@ -26,6 +26,21 @@ export const EVIDENCE_TYPE_POINTS: Record<
   OTHER: { strong: 5, weak: 2, label: "OTHER (Supporting exhibit)" },
 };
 
+/** Cross-anchor check badge text for one exhibit. Attachments stored
+ *  before cross-verification existed have no crossVerify result and
+ *  render as UNVERIFIED (Self-attested). */
+export function crossAnchorLabel(att: AttachedEvidence): string {
+  const cv = att.crossVerify;
+  if (!cv) return "Cross-Anchor Check: UNVERIFIED (Self-attested)";
+  if (cv.status === "VERIFIED") {
+    return `Cross-Anchor Check: VERIFIED (${cv.anchorsMatched}/${cv.anchorsTotal} anchors match PayPal record)`;
+  }
+  if (cv.status === "CONTRADICTION") {
+    return "Cross-Anchor Check: CONTRADICTION (0 pts awarded)";
+  }
+  return "Cross-Anchor Check: UNVERIFIED (Self-attested)";
+}
+
 export default function EvidenceVault({
   disputeId,
   attached,
@@ -296,6 +311,24 @@ export default function EvidenceVault({
                     {att.referenceId ? ` · Ref: ${att.referenceId}` : ""}
                   </span>
                   <CopyChip text={att.sha256} label="Copy hash" />
+                </div>
+                <div className="vault-item-badges">
+                  <div className="vault-badge">
+                    <span className="chip font-mono">
+                      Post-Upload Lock: SHA-256 {att.sha256.slice(0, 12)}…
+                    </span>
+                    <span className="vault-badge-sub">
+                      Proves file bytes were not altered after upload to
+                      PHALANX
+                    </span>
+                  </div>
+                  <div className="vault-badge">
+                    <span
+                      className={`badge ${att.crossVerify?.status === "VERIFIED" ? "strong" : "weak"}`}
+                    >
+                      {crossAnchorLabel(att)}
+                    </span>
+                  </div>
                 </div>
               </div>
               <button

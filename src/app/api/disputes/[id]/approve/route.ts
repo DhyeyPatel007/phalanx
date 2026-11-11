@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
-import { getDispute, latestRun, setApproval } from "@/lib/store";
+import {
+  getArtifacts,
+  getAttachedEvidence,
+  getDispute,
+  latestRun,
+  setApproval,
+} from "@/lib/store";
 import { ensureLiveDispute } from "@/lib/ingest";
-import { actionForVerdict, computeOfferAmount } from "@/lib/scorer";
+import {
+  actionForVerdict,
+  computeOfferAmount,
+  scoreDispute,
+} from "@/lib/scorer";
+import { computeAttachedEvidenceDelta } from "@/lib/evidence-scorer";
+import { isBareConcede } from "@/lib/evidence-hold";
 import {
   checkOfferAcceptTypes,
   resolveAction,
@@ -52,6 +64,7 @@ export async function POST(
   const body = (await req.json().catch(() => ({}))) as {
     action?: string;
     offer_amount?: { currency_code: string; value: string };
+    confirmed_no_evidence?: boolean;
   };
   const action = body.action ?? actionForVerdict(run.verdict);
 
@@ -78,6 +91,39 @@ export async function POST(
     return NextResponse.json(
       { error: typeError, allowed_response_options: dispute.allowed_response_options },
       { status: 409 },
+    );
+  }
+
+  // Pre-concede evidence hold (workstream B, server enforcement): a
+  // bare LIVE dispute (<35, no attached evidence) may not be approved
+  // for a full refund (accept-claim) until the merchant explicitly
+  // confirms no tracking, delivery proof, or fulfillment log exists.
+  // No approval is recorded on refusal. Every other case is unaffected.
+  const baseArtifacts = getArtifacts(id);
+  const baseCheck = scoreDispute(dispute, baseArtifacts);
+  const liveAttached = getAttachedEvidence(id);
+  const deltaCalc = computeAttachedEvidenceDelta(
+    liveAttached,
+    baseCheck.items,
+    dispute,
+    baseCheck.score,
+  );
+  if (
+    isBareConcede({
+      source: dispute.source,
+      score: deltaCalc.finalScore,
+      attachedCount: liveAttached.length,
+      action,
+    }) &&
+    body.confirmed_no_evidence !== true
+  ) {
+    return NextResponse.json(
+      {
+        error: "BARE_DISPUTE_CONFIRMATION_REQUIRED",
+        detail:
+          "This dispute scores <35 with no attached evidence. Confirm no tracking, delivery proof, or fulfillment log exists for this transaction before authorizing a full refund (send confirmed_no_evidence: true).",
+      },
+      { status: 400 },
     );
   }
 

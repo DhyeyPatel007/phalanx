@@ -238,6 +238,21 @@ export function sha256Hex(input: string): string {
   return createHash("sha256").update(input, "utf-8").digest("hex");
 }
 
+/** Cross-anchor check badge line for one attached exhibit in the PDF
+ *  manifest. Attachments stored before cross-verification existed have
+ *  no crossVerify result and render as UNVERIFIED (Self-attested). */
+export function crossAnchorPdfLine(att: AttachedEvidence): string {
+  const cv = att.crossVerify;
+  if (!cv) return "Cross-Anchor Check: UNVERIFIED (Self-attested)";
+  if (cv.status === "VERIFIED") {
+    return `Cross-Anchor Check: VERIFIED (${cv.anchorsMatched}/${cv.anchorsTotal} anchors match PayPal record)`;
+  }
+  if (cv.status === "CONTRADICTION") {
+    return "Cross-Anchor Check: CONTRADICTION (0 pts awarded)";
+  }
+  return "Cross-Anchor Check: UNVERIFIED (Self-attested)";
+}
+
 export function artifactsForPdf(
   artifacts: EvidenceArtifact[],
   run: SwarmRun | null,
@@ -545,6 +560,8 @@ export async function buildEvidencePdf(
         }
         cy = drawWrapped(page, `Attached: ${att.fileName} [${att.evidenceType}] (${att.quality}, +${att.scoreDelta} pts)`, MARGIN, cy, bold, SMALL, maxW);
         cy = drawWrapped(page, `SHA-256: ${att.sha256}`, MARGIN + 12, cy, font, SMALL, maxW);
+        cy = drawWrapped(page, `Post-Upload Lock: SHA-256 ${att.sha256}`, MARGIN + 12, cy, font, SMALL, maxW);
+        cy = drawWrapped(page, crossAnchorPdfLine(att), MARGIN + 12, cy, font, SMALL, maxW);
         cy -= 4;
       }
     }

@@ -135,6 +135,77 @@ export async function getPayPalDispute(id: string, timeoutMs?: number) {
   return res.json();
 }
 
+export interface PayPalTrackingRecord {
+  status?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  deliveryDate?: string;
+}
+
+/**
+ * GET /v1/shipping/trackers/{transactionId} — PayPal Tracking API probe
+ * (live-evidence workstream A).
+ *
+ * FAIL-SOFT by design: returns null on ANY failure — unconfigured
+ * credentials, 404 / 403 / missing scope, timeout, malformed body — and
+ * NEVER throws. Callers treat null as "no tracking known" and carry on
+ * with the dispute detail alone; a live dispute's score never depends
+ * on this call succeeding. NOTE: not live-verified yet — this VM has no
+ * PayPal credentials, so the call path is verified structurally only
+ * (unit tests) until Part D proves it against Sandbox.
+ */
+export async function getTrackingForTransaction(
+  transactionId: string,
+  timeoutMs = 5000,
+): Promise<PayPalTrackingRecord | null> {
+  try {
+    if (!transactionId) return null;
+    const res = await paypalFetch(
+      `/v1/shipping/trackers/${encodeURIComponent(transactionId)}`,
+      {},
+      false,
+      timeoutMs,
+    );
+    if (!res.ok) return null;
+    const body: unknown = await res.json().catch(() => null);
+    if (!body || typeof body !== "object") return null;
+    // Shape varies: a single tracker object, or { trackers: [...] }.
+    const raw = body as Record<string, unknown>;
+    const first = Array.isArray(raw.trackers) ? raw.trackers[0] : raw;
+    if (!first || typeof first !== "object") return null;
+    const rec = first as Record<string, unknown>;
+    const str = (v: unknown): string | undefined =>
+      typeof v === "string" && v.length > 0 ? v : undefined;
+    const status = str(rec.status);
+    const carrier = str(rec.carrier);
+    const trackingNumber =
+      str(rec.tracking_number) ?? str(rec.trackingNumber) ?? str(rec.tracking_no);
+    // Delivery date: known keys first, then any ISO-date string value in
+    // the record (field names vary across PayPal's tracker shapes).
+    let deliveryDate =
+      str(rec.delivery_date) ??
+      str(rec.delivered_date) ??
+      str(rec.actual_delivery_date) ??
+      str(rec.deliveryDate) ??
+      str(rec.deliveredDate);
+    if (!deliveryDate) {
+      for (const v of Object.values(rec)) {
+        if (typeof v === "string") {
+          const m = v.match(/\d{4}-\d{2}-\d{2}/);
+          if (m) {
+            deliveryDate = m[0];
+            break;
+          }
+        }
+      }
+    }
+    if (!status && !carrier && !trackingNumber && !deliveryDate) return null;
+    return { status, carrier, trackingNumber, deliveryDate };
+  } catch {
+    return null;
+  }
+}
+
 export interface PayPalActionResult {
   ok: boolean;
   status: number;

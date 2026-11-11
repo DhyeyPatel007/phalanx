@@ -43,6 +43,9 @@ import {
   isSandboxBaseUrl,
   parseTrackingInfo,
 } from "../src/lib/execute-gate";
+import { runPartAChecks } from "./unit-checks-part-a";
+import { runPartBChecks } from "./unit-checks-part-b";
+import { runPartCChecks } from "./unit-checks-part-c";
 import type { Approval, ExecutionRecord } from "../src/lib/types";
 import {
   addAttachedEvidence,
@@ -529,23 +532,30 @@ async function practicalReasoningAndEvidenceChecks(): Promise<void> {
   check("Dispute B baseline score is 60", 60, runBBase.score);
   check("Dispute B baseline verdict is DE_ESCALATE_OFFER", "DE_ESCALATE_OFFER", runBBase.verdict);
 
-  // Now attach a STRONG Delivery Photo / POD evidence (+15)
+  // Now attach a STRONG Merchant Log (+25) — under slot-based scoring
+  // (Nov 2026) attachments fill only slots the base does not already
+  // pass. B's base already passes tracking/verifiable/invoice, so a
+  // Delivery Photo would add 0; the merchant-log slot is the empty one.
+  const logText =
+    "2026-10-28T09:14:22Z ORDER_RECEIVED dispute PP-D-88413 amount $210.00\n" +
+    "2026-10-28T11:02:10Z DISPATCHED via FEDEX tracking 784512369874\n" +
+    "2026-10-29T16:40:00Z DELIVERED to buyer";
   addAttachedEvidence("PP-D-88413", {
     id: "att-test-1",
     disputeId: "PP-D-88413",
-    evidenceType: "DELIVERY_PHOTO",
-    fileName: "delivery_photo.png",
-    sizeBytes: 1024,
-    mimeType: "image/png",
-    base64Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    evidenceType: "MERCHANT_LOG",
+    fileName: "merchant_log.txt",
+    sizeBytes: logText.length,
+    mimeType: "text/plain",
+    base64Data: Buffer.from(logText).toString("base64"),
     sha256: "dummy-sha256",
     quality: "STRONG",
-    scoreDelta: 15,
+    scoreDelta: 25,
     createdAt: new Date().toISOString(),
   });
 
   const runBBoosted = await runSwarm(dispB);
-  check("Dispute B boosted score reaches 75 (60 + 15)", 75, runBBoosted.score);
+  check("Dispute B boosted score reaches 85 (60 + 25)", 85, runBBoosted.score);
   check("Dispute B boosted verdict flips to CONTEST_HARD_PROOF", "CONTEST_HARD_PROOF", runBBoosted.verdict);
   check("Dispute B recorded attached evidence", 1, runBBoosted.attached_evidence?.length ?? 0);
 
@@ -999,6 +1009,9 @@ async function main(): Promise<void> {
   await webhookUpdateChecks();
   await liveSyncChecks();
   executeGateChecks();
+  await runPartAChecks(check);
+  await runPartBChecks(check);
+  await runPartCChecks(check);
   console.log(`\n${count - failures}/${count} unit checks passed.`);
   process.exit(failures > 0 ? 1 : 0);
 }
