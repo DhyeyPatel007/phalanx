@@ -2,6 +2,8 @@
 // records already contain for that dispute. Scores are checklist scores,
 // never a win probability.
 
+import type { CrossVerifyResult } from "./cross-verify";
+
 export type DisputeSource = "sandbox" | "seeded";
 
 export interface Money {
@@ -151,6 +153,10 @@ export interface AttachedEvidence {
   sha256: string;
   quality: EvidenceQuality;
   scoreDelta: number;
+  /** 5-anchor cross-verification against the PayPal dispute record
+   *  (src/lib/cross-verify.ts). Absent for attachments stored before this
+   *  change — those render as UNVERIFIED (Self-attested). */
+  crossVerify?: CrossVerifyResult;
   base64Data?: string;
   createdAt: string;
 }
