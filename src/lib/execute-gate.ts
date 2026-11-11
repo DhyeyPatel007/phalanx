@@ -10,6 +10,7 @@ import { checkOfferAcceptTypes, stageGate } from "./arbiter";
 import { evidenceTypesFor } from "./pdf";
 import type {
   Approval,
+  AttachedEvidence,
   Dispute,
   EvidenceArtifact,
   ExecutionRecord,
@@ -160,49 +161,117 @@ export function decideExecute(input: ExecuteGateInput): ExecuteGateDecision {
   return { ok: true };
 }
 
-/** Parse "FEDEX 774829104829, DELIVERED ..." into carrier + tracking number.
+/** Parse a tracking summary into carrier + tracking number.
+ *  Handles both summary shapes in the store:
+ *  - seeded bare form: "FEDEX 774829104829, DELIVERED ..."
+ *  - PayPal Tracking API form: "Carrier UPS tracking 1Z... — DELIVERED ..."
  *  Returns null when the summary carries no carrier/number pair. */
 export function parseTrackingInfo(
   summary: string,
 ): { carrier_name: string; tracking_number: string } | null {
+  const labeled = summary.match(
+    /Carrier\s+([A-Za-z]+)\s+tracking\s+([A-Za-z0-9][A-Za-z0-9-]*)/i,
+  );
+  if (labeled) {
+    return {
+      carrier_name: labeled[1].toUpperCase(),
+      tracking_number: labeled[2],
+    };
+  }
   const m = summary.match(/^([A-Z][A-Z0-9]*)\s+([A-Za-z0-9][A-Za-z0-9-]*)/);
   if (!m) return null;
   return { carrier_name: m[1], tracking_number: m[2] };
 }
 
+/** Parse carrier + tracking number from an attached tracking receipt / POD.
+ *  Reads the file's own text ("Carrier: UPS" / "Tracking number: 1Z..."),
+ *  falling back to the attachment's referenceId metadata as the number.
+ *  Returns null when neither the text nor the metadata yields a pair. */
+export function parseTrackingFromAttached(
+  att: AttachedEvidence,
+): { carrier_name: string; tracking_number: string } | null {
+  let text = "";
+  if (att.base64Data) {
+    try {
+      text = Buffer.from(att.base64Data.slice(0, 8192), "base64").toString(
+        "utf-8",
+      );
+    } catch {
+      text = "";
+    }
+  }
+  const carrier = text.match(/Carrier:\s*([A-Za-z]+)/i)?.[1];
+  const number =
+    text.match(/Tracking number:\s*([A-Za-z0-9][A-Za-z0-9-]*)/i)?.[1] ??
+    (att.referenceId?.trim() || "");
+  if (!carrier || !number) return null;
+  return { carrier_name: carrier.toUpperCase(), tracking_number: number };
+}
+
 export interface ProvideEvidenceInput {
-  /** Structured evidences[] JSON — the primary payload (Phase 0 row 2). */
+  /** Structured evidences[] JSON — the primary payload (Phase 0 row 2).
+   *  Shape follows PayPal's provide-evidence schema exactly:
+   *  `tracking_info` is an ARRAY inside evidence_info, and `notes` is a
+   *  sibling of evidence_type/evidence_info — never inside evidence_info
+   *  (PayPal 400s that as INVALID_REQUEST; verified live Nov 11, 2026). */
   evidences: Array<{
     evidence_type: string;
     evidence_info?: Record<string, unknown>;
+    notes?: string;
   }>;
 }
 
 /** Build the structured evidences[] for provide-evidence from the
  *  evidence types PayPal actually requested (evidenceTypesFor) plus the
- *  merchant's own tracking artifact. Only requested types are ever sent. */
+ *  merchant's own tracking — first from a stored tracking artifact
+ *  (PayPal Tracking API record), then from an attached tracking receipt
+ *  or carrier POD. Only requested types are ever sent. */
 export function buildProvideEvidenceInput(
   dispute: Dispute,
   artifacts: EvidenceArtifact[],
+  attached: AttachedEvidence[] = [],
 ): ProvideEvidenceInput {
   const types = evidenceTypesFor(dispute, "provide-evidence");
   const tracking = artifacts.find((a) => a.kind === "tracking");
-  const trackingInfo = tracking ? parseTrackingInfo(tracking.summary) : null;
+  const fromArtifact = tracking ? parseTrackingInfo(tracking.summary) : null;
+  const fromAttached =
+    fromArtifact ??
+    attached
+      .filter(
+        (a) =>
+          a.evidenceType === "TRACKING_RECEIPT" ||
+          a.evidenceType === "CARRIER_POD",
+      )
+      .sort(
+        (a, b) =>
+          (a.quality === "STRONG" ? 0 : 1) - (b.quality === "STRONG" ? 0 : 1),
+      )
+      .map((a) => parseTrackingFromAttached(a))
+      .find((t) => t !== null) ??
+    null;
+  const trackingInfo = fromArtifact ?? fromAttached;
 
   const evidences = types.map((evidence_type) => {
-    const evidence_info: Record<string, unknown> = {};
     if (evidence_type === "PROOF_OF_FULFILLMENT" && trackingInfo) {
-      evidence_info.tracking_info = trackingInfo;
-    } else if (evidence_type === "PROOF_OF_FULFILLMENT") {
-      evidence_info.notes =
-        "Tracking proof is in the attached PDF dossier; no carrier tracking record exists in the merchant store.";
-    } else {
-      const first = artifacts.find((a) => a.kind !== "tracking");
-      evidence_info.notes = first
-        ? `See attached PDF dossier: ${first.summary}`
-        : "See attached PDF dossier.";
+      return {
+        evidence_type,
+        evidence_info: { tracking_info: [trackingInfo] },
+      };
     }
-    return { evidence_type, evidence_info };
+    if (evidence_type === "PROOF_OF_FULFILLMENT") {
+      return {
+        evidence_type,
+        notes:
+          "Tracking proof is in the attached PDF dossier; no carrier tracking record exists in the merchant store.",
+      };
+    }
+    const first = artifacts.find((a) => a.kind !== "tracking");
+    return {
+      evidence_type,
+      notes: first
+        ? `See attached PDF dossier: ${first.summary}`
+        : "See attached PDF dossier.",
+    };
   });
 
   return { evidences };

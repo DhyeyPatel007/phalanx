@@ -120,7 +120,7 @@ export async function POST(
         run ?? null,
         attached,
       );
-      const { evidences } = buildProvideEvidenceInput(dispute, artifacts);
+      const { evidences } = buildProvideEvidenceInput(dispute, artifacts, attached);
       result = await provideEvidence(id, evidences, pdfBytes);
     } else if (approved.action === "make-offer") {
       const offerAmount =

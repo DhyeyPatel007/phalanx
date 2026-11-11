@@ -41,6 +41,7 @@ import {
   buildProvideEvidenceInput,
   decideExecute,
   isSandboxBaseUrl,
+  parseTrackingFromAttached,
   parseTrackingInfo,
 } from "../src/lib/execute-gate";
 import { runPartAChecks } from "./unit-checks-part-a";
@@ -728,19 +729,83 @@ function executeGateChecks(): void {
   check("pickAcceptClaimType defaults to REFUND when undefined", "REFUND", pickAcceptClaimType(undefined));
 
   // provide-evidence input: only requested types, tracking_info from artifact.
+  // PayPal schema (verified live Nov 11, 2026 — the old shape 400d with
+  // INVALID_REQUEST): tracking_info is an ARRAY inside evidence_info, and
+  // notes is a sibling of evidence_type/evidence_info, never inside it.
   const d = dispute({ id: "PP-D-TEST" });
   const trackingArt = artifact("t1", "tracking", "FEDEX 774829104829, DELIVERED to PayPal transaction address");
   const input = buildProvideEvidenceInput(d, [trackingArt]);
   check("provide-evidence type is PROOF_OF_FULFILLMENT", "PROOF_OF_FULFILLMENT", input.evidences[0]?.evidence_type);
+  const ti = input.evidences[0]?.evidence_info?.tracking_info as
+    | Array<{ carrier_name?: string; tracking_number?: string }>
+    | undefined;
+  check("provide-evidence tracking_info is an array", true, Array.isArray(ti));
+  check("provide-evidence tracking carrier is FEDEX", "FEDEX", ti?.[0]?.carrier_name);
+  check("provide-evidence tracking number is 774829104829", "774829104829", ti?.[0]?.tracking_number);
   check(
-    "provide-evidence carries tracking_info",
-    "774829104829",
-    (input.evidences[0]?.evidence_info?.tracking_info as { tracking_number?: string } | undefined)?.tracking_number,
+    "provide-evidence tracking evidence has no notes inside evidence_info",
+    undefined,
+    (input.evidences[0]?.evidence_info as Record<string, unknown> | undefined)?.notes,
   );
   const noTracking = buildProvideEvidenceInput(d, []);
   check("provide-evidence without tracking still sends the type", "PROOF_OF_FULFILLMENT", noTracking.evidences[0]?.evidence_type);
+  check(
+    "provide-evidence without tracking puts notes at evidence level",
+    true,
+    typeof noTracking.evidences[0]?.notes === "string" &&
+      (noTracking.evidences[0].notes?.length ?? 0) > 0,
+  );
+  check(
+    "provide-evidence without tracking has no evidence_info.notes",
+    undefined,
+    (noTracking.evidences[0]?.evidence_info as Record<string, unknown> | undefined)?.notes,
+  );
   const snad = dispute({ id: "PP-D-TEST-SNAD", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED" });
   check("SNAD provide-evidence defaults to OTHER", "OTHER", buildProvideEvidenceInput(snad, []).evidences[0]?.evidence_type);
+
+  // parseTrackingInfo handles the PayPal Tracking API summary shape too.
+  const labeled = parseTrackingInfo(
+    "Carrier UPS tracking 1Z999AA10123456784 — DELIVERED on 2026-11-08",
+  );
+  check("parseTrackingInfo labeled carrier is UPS", "UPS", labeled?.carrier_name);
+  check("parseTrackingInfo labeled number is 1Z999AA10123456784", "1Z999AA10123456784", labeled?.tracking_number);
+
+  // Attached tracking receipt supplies tracking_info when no artifact exists.
+  const receiptText =
+    "CARRIER TRACKING RECEIPT\nCarrier: UPS\nTracking number: 1Z999AA10123456784\nStatus: DELIVERED\nDelivery date: 2026-11-08\nAmount: USD 480.00\nTransaction ID: 29H2987714392212F\nDispute ID: PP-R-KBL-10198693\n";
+  const receipt: AttachedEvidence = {
+    id: "att-test-receipt",
+    disputeId: "PP-D-TEST",
+    evidenceType: "TRACKING_RECEIPT",
+    fileName: "tracking-receipt.txt",
+    sizeBytes: receiptText.length,
+    mimeType: "text/plain",
+    base64Data: Buffer.from(receiptText).toString("base64"),
+    referenceId: "1Z999AA10123456784",
+    documentDate: "2026-11-08",
+    sha256: "dummy-sha256",
+    quality: "STRONG",
+    scoreDelta: 45,
+    createdAt: new Date().toISOString(),
+  };
+  const fromAttached = buildProvideEvidenceInput(d, [], [receipt]);
+  const ti2 = fromAttached.evidences[0]?.evidence_info?.tracking_info as
+    | Array<{ carrier_name?: string; tracking_number?: string }>
+    | undefined;
+  check("attached receipt supplies tracking_info array", true, Array.isArray(ti2));
+  check("attached receipt tracking carrier is UPS", "UPS", ti2?.[0]?.carrier_name);
+  check("attached receipt tracking number is 1Z999AA10123456784", "1Z999AA10123456784", ti2?.[0]?.tracking_number);
+  check(
+    "parseTrackingFromAttached reads receipt text",
+    "1Z999AA10123456784",
+    parseTrackingFromAttached(receipt)?.tracking_number,
+  );
+  const noCarrier: AttachedEvidence = {
+    ...receipt,
+    base64Data: Buffer.from("nothing here").toString("base64"),
+    referenceId: undefined,
+  };
+  check("parseTrackingFromAttached returns null without carrier/number", null, parseTrackingFromAttached(noCarrier));
 
   // Gate decisions.
   const base = {

@@ -651,8 +651,13 @@ async function runCase(
       fileBytes.set(gen.bytes);
       form.append("file", new Blob([fileBytes], { type: gen.mimeType }), gen.fileName);
       form.append("evidenceType", entry.type);
-      if (entry.referenceId) form.append("referenceId", entry.referenceId);
-      if (entry.documentDate) form.append("documentDate", entry.documentDate);
+      // Quality anchors: STRONG needs 2 anchors (referenceId + documentDate).
+      // Default them from the template fields so a plan entry that only sets
+      // trackingNumber/deliveryDate still classifies STRONG.
+      const refId = entry.referenceId ?? entry.trackingNumber;
+      const docDate = entry.documentDate ?? entry.deliveryDate;
+      if (refId) form.append("referenceId", refId);
+      if (docDate) form.append("documentDate", docDate);
       if (entry.notes) form.append("notes", entry.notes);
       const { status, body } = await fetchJson(
         `${baseUrl}/api/disputes/${encodeURIComponent(disputeId)}/evidence`,
