@@ -244,8 +244,17 @@ export async function provideEvidence(
   }>,
   pdfBytes: Uint8Array,
 ): Promise<PayPalActionResult> {
+  // PayPal's documented curl sends the input part as application/json
+  // (`-F 'input={...};type=application/json'`). A plain FormData string
+  // part goes out as text/plain and PayPal 400s it as INVALID_REQUEST,
+  // so the JSON rides in a Blob typed application/json.
   const form = new FormData();
-  form.append("input", JSON.stringify({ evidences }));
+  form.append(
+    "input",
+    new Blob([JSON.stringify({ evidences })], {
+      type: "application/json",
+    }),
+  );
   form.append(
     "file1",
     new Blob([pdfBytes as unknown as BlobPart], {
