@@ -20,6 +20,7 @@ import {
   computeSha256,
 } from "@/lib/evidence-scorer";
 import { buildPracticalReasons, deduplicateGaps } from "@/lib/practical-reasoning";
+import { verifyAttachmentAgainstDispute } from "@/lib/cross-verify";
 import { evDisplay, scoreDispute } from "@/lib/scorer";
 import type { AttachedEvidence, EvidenceType, SwarmRun } from "@/lib/types";
 
@@ -189,6 +190,19 @@ export async function POST(
     sha256,
     quality: classification.quality,
     scoreDelta: classification.scoreDelta,
+    // 5-anchor cross-verification against the PayPal dispute record
+    // (pure/deterministic; stored before addAttachedEvidence so the
+    // detail API, UI badges and PDF manifest all see it).
+    crossVerify: verifyAttachmentAgainstDispute({
+      fileName,
+      mimeType,
+      bytes: fileBuffer,
+      evidenceType,
+      referenceId: referenceId || undefined,
+      documentDate: documentDate || undefined,
+      notes: notes || undefined,
+      dispute,
+    }),
     base64Data: fileBuffer.toString("base64"),
     createdAt: new Date().toISOString(),
   };
