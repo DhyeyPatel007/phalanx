@@ -399,6 +399,19 @@ export function computeAttachedEvidenceDelta(
   const finalScore = Math.min(100, baseScore + totalDelta);
   const verdict = verdictForScore(finalScore);
 
+  // Write the ACTUAL slot award back onto each attachment's scoreDelta.
+  // The stored objects are the live store references (getAttachedEvidence
+  // returns them directly), so this syncs every display site at once:
+  // Evidence Vault, PDF manifest, swarm prompt, practical reasons all
+  // read att.scoreDelta. The classifier's nominal value is NOT the
+  // contribution under slot scoring (a tracking receipt that fills
+  // tracking+verifiable contributes 45, not its nominal 20; a
+  // CONTRADICTION contributes 0, not its nominal 15). Losers and
+  // contradictions get 0.
+  for (const att of attached) {
+    att.scoreDelta = itemDeltas[att.id] ?? 0;
+  }
+
   return {
     delta: totalDelta,
     finalScore,

@@ -595,4 +595,34 @@ export async function runPartAChecks(check: Check): Promise<void> {
     null,
     await getTrackingForTransaction(""),
   );
+
+  // ---- Integration: scoreDelta sync (coordinator fix) ----
+  // computeAttachedEvidenceDelta writes the ACTUAL slot award back onto
+  // each attachment's scoreDelta, so the Vault, PDF, swarm prompt and
+  // practical reasons show the true contribution, not the classifier's
+  // nominal value at upload time.
+  {
+    const att = trackingStrong();
+    att.scoreDelta = 20; // classifier nominal at upload time
+    computeAttachedEvidenceDelta([att], liveItems, liveDispute, 15);
+    check("A tracking receipt scoreDelta syncs from nominal 20 to actual 45", 45, att.scoreDelta);
+  }
+  {
+    const bad = withContradiction(
+      attached("att-bad-invoice", "INVOICE", "STRONG", "INVOICE #INV-9\nTotal: $19.99 USD"),
+    );
+    bad.scoreDelta = 15; // classifier nominal at upload time
+    const r = computeAttachedEvidenceDelta([bad], liveItems, liveDispute, 15);
+    check("A CONTRADICTION invoice contributes 0", 15, r.finalScore);
+    check("A CONTRADICTION invoice scoreDelta syncs to 0", 0, bad.scoreDelta);
+  }
+  {
+    const strong = trackingStrong();
+    const weak = attached("att-tracking-weak", "TRACKING_RECEIPT", "WEAK", TRACKING_TEXT);
+    strong.scoreDelta = 20;
+    weak.scoreDelta = 8;
+    computeAttachedEvidenceDelta([strong, weak], liveItems, liveDispute, 15);
+    check("A winning STRONG tracking receipt keeps 45", 45, strong.scoreDelta);
+    check("A losing WEAK tracking receipt scoreDelta syncs to 0", 0, weak.scoreDelta);
+  }
 }

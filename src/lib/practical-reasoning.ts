@@ -367,10 +367,18 @@ export function buildPracticalReasons(
         `[+15 pts] Itemized invoice & terms timestamps align with disputed ${amountStr || "transaction"} amount.`,
       );
     } else if (attachedEvidence.length > 0) {
-      const best = attachedEvidence[0];
-      reasons.push(
-        `[+${best.scoreDelta} pts] Verified merchant attachment (${best.evidenceType}) satisfies evidentiary burden.`,
+      // scoreDelta is the ACTUAL slot award by the time this runs
+      // (computeAttachedEvidenceDelta syncs it): pick the biggest
+      // contributor, and say nothing if nothing actually contributed
+      // (e.g. every attachment was a CONTRADICTION at 0 pts).
+      const best = attachedEvidence.reduce((a, b) =>
+        b.scoreDelta > a.scoreDelta ? b : a,
       );
+      if (best.scoreDelta > 0) {
+        reasons.push(
+          `[+${best.scoreDelta} pts] Verified merchant attachment (${best.evidenceType}) satisfies evidentiary burden.`,
+        );
+      }
     } else if (sigPassed) {
       reasons.push("[+15 pts] Recipient signature confirmation on file.");
     }
